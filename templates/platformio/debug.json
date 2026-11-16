@@ -1,0 +1,38 @@
+// Copy to `.zed/debug.json` at the root of your PlatformIO project, then set
+// `chip` to your microcontroller as named by probe-rs (`probe-rs chip list`).
+//
+// These sessions debug through probe-rs, not through PlatformIO's own
+// debugger: you need a probe supported by probe-rs (ST-Link, J-Link,
+// CMSIS-DAP, or the built-in USB-JTAG of ESP32-C3/C6/S3).
+[
+  {
+    "label": "PlatformIO: build, flash and debug",
+    "adapter": "probe-rs",
+    "request": "launch",
+    // Builds the firmware with debug symbols before each session.
+    // Add "-e", "<environment>" to the args to build another environment.
+    "build": {
+      "command": "pio",
+      "args": ["debug"]
+    },
+    "chip": "STM32F411RETx",
+    // Optional: the environment whose firmware is debugged
+    // (.pio/build/<pioEnv>/firmware.elf). Defaults to your default environment.
+    // "pioEnv": "nucleo_f411re",
+    "flashingConfig": {
+      "flashingEnabled": true,
+      "haltAfterReset": false
+    }
+  },
+  {
+    // Debugs the firmware already on the chip, without flashing or resetting.
+    // Upload first with the "PlatformIO: upload" task. This is the safest
+    // choice on ESP32, where PlatformIO knows how to flash the bootloader and
+    // partitions.
+    "label": "PlatformIO: attach to running target",
+    "adapter": "probe-rs",
+    "request": "attach",
+    "chip": "STM32F411RETx"
+    // "pioEnv": "nucleo_f411re"
+  }
+]
