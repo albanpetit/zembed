@@ -1,13 +1,15 @@
 id = "zembed"
 name = "Zembed"
-description = "Embedded development for Zed: debug Rust and PlatformIO firmware on microcontrollers with probe-rs."
-version = "0.2.0"
+description = "Embedded development for Zed: debug Rust, C and C++ firmware on microcontrollers with probe-rs or GDB + OpenOCD, with PlatformIO support."
+version = "0.3.0"
 schema_version = 1
 authors = ["Alban Petit"]
 repository = "https://github.com/albanpetit/zembed"
 
 # One entry per debug adapter. The key is the name used in `.zed/debug.json`
-# ("adapter": "probe-rs"). Future adapters (e.g. a GDB-based one) get their
-# own entry here and their own module in `src/adapters/`.
+# ("adapter": "probe-rs"). Each adapter has its own module in `src/adapters/`.
 [debug_adapters.probe-rs]
 schema_path = "debug_adapter_schemas/probe-rs.json"
+
+[debug_adapters.gdb-openocd]
+schema_path = "debug_adapter_schemas/gdb-openocd.json"

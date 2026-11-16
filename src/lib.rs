@@ -5,9 +5,10 @@
 //! `extension.toml`.
 
 mod adapters;
+mod paths;
 mod platformio;
 
-use adapters::probe_rs;
+use adapters::{gdb_openocd, probe_rs};
 use zed_extension_api::{
     self as zed, serde_json::Value, DebugAdapterBinary, DebugConfig, DebugScenario,
     DebugTaskDefinition, StartDebuggingRequestArgumentsRequest, Worktree,
@@ -31,6 +32,9 @@ impl zed::Extension for Zembed {
             probe_rs::ADAPTER_NAME => {
                 probe_rs::get_dap_binary(config, user_provided_debug_adapter_path, worktree)
             }
+            gdb_openocd::ADAPTER_NAME => {
+                gdb_openocd::get_dap_binary(config, user_provided_debug_adapter_path, worktree)
+            }
             other => Err(unknown_adapter(other)),
         }
     }
@@ -42,6 +46,7 @@ impl zed::Extension for Zembed {
     ) -> Result<StartDebuggingRequestArgumentsRequest, String> {
         match adapter_name.as_str() {
             probe_rs::ADAPTER_NAME => probe_rs::request_kind(&config),
+            gdb_openocd::ADAPTER_NAME => gdb_openocd::request_kind(&config),
             other => Err(unknown_adapter(other)),
         }
     }
@@ -49,6 +54,7 @@ impl zed::Extension for Zembed {
     fn dap_config_to_scenario(&mut self, config: DebugConfig) -> Result<DebugScenario, String> {
         match config.adapter.as_str() {
             probe_rs::ADAPTER_NAME => probe_rs::config_to_scenario(config),
+            gdb_openocd::ADAPTER_NAME => gdb_openocd::config_to_scenario(config),
             other => Err(unknown_adapter(other)),
         }
     }

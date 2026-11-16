@@ -6,6 +6,7 @@
 //! 3. translate the user's `.zed/debug.json` entry into the configuration
 //!    probe-rs expects (see `normalize_config`).
 
+use crate::paths::resolve_path;
 use crate::platformio;
 use zed_extension_api::{
     resolve_tcp_template,
@@ -242,21 +243,6 @@ pub fn chip_from_text(text: &str) -> Option<String> {
         }
     }
     None
-}
-
-fn is_absolute(path: &str) -> bool {
-    let bytes = path.as_bytes();
-    path.starts_with('/')
-        || path.starts_with('\\')
-        || (bytes.len() > 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
-}
-
-fn resolve_path(path: &str, base: &str) -> String {
-    if is_absolute(path) {
-        return path.to_string();
-    }
-    let path = path.strip_prefix("./").unwrap_or(path);
-    format!("{}/{}", base.trim_end_matches(['/', '\\']), path)
 }
 
 #[cfg(test)]

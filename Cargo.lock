@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "zembed"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde_json",
  "zed_extension_api",

@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GDB + OpenOCD debug configuration (Zembed)",
+  "type": "object",
+  "required": ["request", "gdb"],
+  "properties": {
+    "request": {
+      "type": "string",
+      "enum": ["attach"],
+      "description": "`attach` connects to the firmware already on the chip and halts it. Upload first, for example with a `build` task such as `pio run -t upload`."
+    },
+    "gdb": {
+      "type": "string",
+      "description": "GDB to use: a path (`~` is expanded) or a name found on your PATH. It must be GDB 14 or newer, built for your chip's architecture and with Python support, because Zembed uses GDB's own DAP mode (`gdb -i=dap`)."
+    },
+    "openocd": {
+      "type": "string",
+      "description": "OpenOCD to start for the session: a path (`~` is expanded) or a name found on your PATH. GDB spawns it in pipe mode and it stops with the session. Requires `openocdArgs`. Omit it and set `target` to use a GDB server you start yourself."
+    },
+    "openocdArgs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OpenOCD arguments selecting the probe and the chip, e.g. [\"-f\", \"board/esp32s3-builtin.cfg\"] or [\"-f\", \"interface/stlink.cfg\", \"-f\", \"target/stm32f4x.cfg\"]."
+    },
+    "openocdScripts": {
+      "type": "string",
+      "description": "OpenOCD scripts directory (`-s`). Defaults to `share/openocd/scripts` next to the `bin` directory of `openocd`."
+    },
+    "resumeOnDisconnect": {
+      "type": "boolean",
+      "default": true,
+      "description": "Resume the firmware when the session ends. When false, the chip stays halted. Only applies when Zembed starts OpenOCD."
+    },
+    "target": {
+      "type": "string",
+      "description": "Address of a GDB server that is already running, as given to GDB's `target remote`, e.g. `localhost:3333`. Takes precedence over `openocd`."
+    },
+    "program": {
+      "type": "string",
+      "description": "Path to the firmware ELF, absolute or relative to `cwd`. Optional in a PlatformIO project (see `pioEnv`)."
+    },
+    "pioEnv": {
+      "type": "string",
+      "description": "PlatformIO environment to debug. When `program` is not set, the firmware is `.pio/build/<pioEnv>/firmware.elf`. Defaults to the project's default environment (`default_envs`, otherwise the first `[env:...]` of platformio.ini)."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory used to resolve a relative `program`. Defaults to the worktree root."
+    }
+  }
+}
