@@ -6,8 +6,8 @@ Zembed is a Zed extension that lets you debug microcontrollers from Zed's
 built-in debugger, through [probe-rs](https://probe.rs). It supports
 **embedded Rust** and **PlatformIO** projects.
 
-> **Status: prototype.** The extension compiles and its configuration logic is
-> unit-tested, but it has not yet been validated against real hardware. See
+> **Status: prototype.** The extension compiles, its configuration logic is
+> unit-tested, and it has been tried on a single board so far. See
 > [Known limits](#known-limits).
 
 ## What you get
@@ -124,14 +124,15 @@ If `probe-rs` is not on your `PATH`, point Zed to it in `settings.json`:
 { "dap": { "probe-rs": { "binary": "/path/to/probe-rs" } } }
 ```
 
-Zembed starts `probe-rs dap-server --port <free port>` and Zed connects to it
+Zembed starts `probe-rs dap-server --port <free port> --single-session` and Zed connects to it
 over TCP. To pin the port, add `"tcp_connection": { "port": 50000 }` to the
 entry.
 
 ## Known limits
 
-- **Not yet tested on hardware.** Please open an issue with your chip, probe
-  and probe-rs version if a session fails to start.
+- **Lightly tested on hardware.** Attaching was validated on a Seeed XIAO
+  ESP32S3 (built-in USB-JTAG, probe-rs 0.32). Please open an issue with your
+  chip, probe and probe-rs version if a session fails to start.
 - **No RTT output in the debug session.** probe-rs sends RTT data through
   custom DAP events designed for its VS Code extension, and Zed ignores them.
   Use the `Zembed: flash and run (RTT logs)` or `Zembed: attach RTT logs`
@@ -145,6 +146,15 @@ entry.
   chips that probe-rs does not support cannot be debugged. C and C++ variables
   are displayed by probe-rs, whose support is more mature for Rust.
 - **`chip` is not derived from the PlatformIO `board`.** It has to be set.
+- **No line breakpoints in C++ code** (tested with probe-rs 0.32 on an ESP32-S3
+  running Arduino). probe-rs only accepts a source breakpoint after the
+  function prologue, and it detects the prologue of GCC-compiled code for C
+  only, so every line of a `.cpp` file is refused with "No valid breakpoint
+  information found". Breakpoints in `.c` files work. This makes the probe-rs
+  adapter of little use for Arduino and other C++ firmware for now.
+- **Dual-core ESP32: one core per session.** probe-rs debugs a single core,
+  core 0 by default, while Arduino runs `setup()` and `loop()` on core 1. Add
+  `"coreConfigs": [{ "coreIndex": 1 }]` to follow core 1.
 - **No peripheral (SVD) view.** Zed extensions cannot add custom panels.
   `svdFile` is still passed to probe-rs, which exposes peripheral registers as
   a variable scope when the client displays it.

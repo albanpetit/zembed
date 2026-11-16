@@ -64,6 +64,9 @@ pub fn get_dap_binary(
             "dap-server".into(),
             "--port".into(),
             connection.port.to_string(),
+            // Exit when the session ends. Without it probe-rs keeps listening
+            // for another client, and the leftover process holds the probe.
+            "--single-session".into(),
         ],
         envs: Vec::new(),
         cwd: Some(root),
