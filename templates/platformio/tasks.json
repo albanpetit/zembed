@@ -1,0 +1,68 @@
+// Copy to `.zed/tasks.json` at the root of your PlatformIO project.
+// Run them with `task: spawn` from the command palette.
+//
+// The tasks use your default environment. To target another one, add
+// `-e <environment>` after `pio run`, `pio debug`, `pio test` or
+// `pio device monitor`.
+// If `pio` is not found, use its full path: `~/.platformio/penv/bin/pio`
+// (`%USERPROFILE%\.platformio\penv\Scripts\pio.exe` on Windows).
+[
+  {
+    "label": "PlatformIO: build",
+    "command": "pio run",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    "label": "PlatformIO: upload",
+    "command": "pio run -t upload",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    // Serial monitor, with the speed set by `monitor_speed` in platformio.ini.
+    "label": "PlatformIO: monitor",
+    "command": "pio device monitor",
+    "use_new_terminal": true,
+    "reveal": "always"
+  },
+  {
+    "label": "PlatformIO: upload and monitor",
+    "command": "pio run -t upload -t monitor",
+    "use_new_terminal": true,
+    "reveal": "always"
+  },
+  {
+    // Firmware with debug symbols and no optimization, as used by the debugger.
+    "label": "PlatformIO: build for debugging",
+    "command": "pio debug",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    "label": "PlatformIO: clean",
+    "command": "pio run -t clean",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    "label": "PlatformIO: test",
+    "command": "pio test",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    // Generates compile_commands.json so clangd understands the project
+    // (includes, defines). Run it again after changing platformio.ini.
+    "label": "PlatformIO: generate compile_commands.json",
+    "command": "pio run -t compiledb",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    "label": "PlatformIO: list serial ports",
+    "command": "pio device list",
+    "use_new_terminal": false,
+    "reveal": "always"
+  }
+]

@@ -11,11 +11,15 @@
     },
     "chip": {
       "type": "string",
-      "description": "Target chip as known by probe-rs (see `probe-rs chip list`), e.g. STM32F411CEUx, nRF52840_xxAA, RP2040. When omitted, Zembed looks for it in Embed.toml and in the `probe-rs run --chip` runner of .cargo/config.toml."
+      "description": "Target chip as known by probe-rs (see `probe-rs chip list`), e.g. STM32F411CEUx, nRF52840_xxAA, RP2040. When omitted, Zembed looks for it in Embed.toml and in a `probe-rs ... --chip <CHIP>` command of .cargo/config.toml or platformio.ini."
     },
     "program": {
       "type": "string",
-      "description": "Path to the firmware ELF, absolute or relative to `cwd`. Shortcut for `coreConfigs[0].programBinary`."
+      "description": "Path to the firmware ELF, absolute or relative to `cwd`. Shortcut for `coreConfigs[0].programBinary`. Optional in a PlatformIO project (see `pioEnv`)."
+    },
+    "pioEnv": {
+      "type": "string",
+      "description": "PlatformIO environment to debug. When `program` is not set, the firmware is `.pio/build/<pioEnv>/firmware.elf`. Defaults to the project's default environment (`default_envs`, otherwise the first `[env:...]` of platformio.ini)."
     },
     "svdFile": {
       "type": "string",

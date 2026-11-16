@@ -3,8 +3,8 @@
 Embedded development for the [Zed](https://zed.dev) editor.
 
 Zembed is a Zed extension that lets you debug microcontrollers from Zed's
-built-in debugger. This first version targets **embedded Rust** through
-[probe-rs](https://probe.rs); PlatformIO support is planned next.
+built-in debugger, through [probe-rs](https://probe.rs). It supports
+**embedded Rust** and **PlatformIO** projects.
 
 > **Status: prototype.** The extension compiles and its configuration logic is
 > unit-tested, but it has not yet been validated against real hardware. See
@@ -18,8 +18,10 @@ built-in debugger. This first version targets **embedded Rust** through
   validation, on top of the native probe-rs options.
 - Chip auto-detection from your project (`Embed.toml`, or the
   `probe-rs run --chip <CHIP>` runner in `.cargo/config.toml`).
-- Ready-to-copy [templates](templates/rust-embedded) for debug sessions and for
-  build / flash / RTT tasks.
+- PlatformIO projects: the firmware to debug is found from `platformio.ini`.
+- Ready-to-copy [templates](templates) for debug sessions and tasks, for
+  [embedded Rust](templates/rust-embedded) (build / flash / RTT) and
+  [PlatformIO](templates/platformio) (build / upload / monitor / test).
 
 ## Requirements
 
@@ -38,7 +40,7 @@ Zembed is not published in the Zed extension registry yet.
 2. In Zed, run `zed: install dev extension` from the command palette and pick
    the cloned folder.
 
-## Quick start
+## Quick start: embedded Rust
 
 1. Copy [`templates/rust-embedded/debug.json`](templates/rust-embedded/debug.json)
    to `.zed/debug.json` in your firmware project.
@@ -49,6 +51,36 @@ Zembed is not published in the Zed extension registry yet.
 For build / flash / RTT tasks, copy
 [`templates/rust-embedded/tasks.json`](templates/rust-embedded/tasks.json) to
 `.zed/tasks.json` and run them with `task: spawn`.
+
+## Quick start: PlatformIO
+
+Tasks work with any board PlatformIO supports:
+
+1. Copy [`templates/platformio/tasks.json`](templates/platformio/tasks.json) to
+   `.zed/tasks.json` in your PlatformIO project.
+2. Run `task: spawn` and pick **PlatformIO: build**, **upload**, **monitor**...
+
+Run **PlatformIO: generate compile_commands.json** once to give clangd the
+project's include paths and defines.
+
+Debugging goes through probe-rs, so it needs `probe-rs` installed and a probe
+it supports (ST-Link, J-Link, CMSIS-DAP, or the built-in USB-JTAG of
+ESP32-C3/C6/S3). A plain USB-serial connection is not enough.
+
+1. Copy [`templates/platformio/debug.json`](templates/platformio/debug.json) to
+   `.zed/debug.json`.
+2. Set `chip` to your microcontroller as probe-rs names it. PlatformIO board
+   names differ: `nucleo_f411re` is `STM32F411RETx`. Search with
+   `probe-rs chip list | grep -i f411`.
+3. Run `debugger: start` (F4) and pick **PlatformIO: build, flash and debug**.
+
+The session builds with `pio debug` (debug symbols, no optimization) and
+debugs `.pio/build/<environment>/firmware.elf`. The environment is `pioEnv` if
+you set it, otherwise `default_envs`, otherwise the first `[env:...]` of
+`platformio.ini`.
+
+On ESP32, prefer the **PlatformIO: upload** task followed by the **attach**
+session: PlatformIO flashes the bootloader and partition table for you.
 
 ## Configuration
 
@@ -71,7 +103,8 @@ A minimal `.zed/debug.json` entry:
 | --- | --- |
 | `request` | `launch` flashes, resets and debugs. `attach` connects to the running chip without flashing or resetting. |
 | `chip` | probe-rs chip name (`probe-rs chip list`). Optional when it can be detected from the project. |
-| `program` | Firmware ELF, absolute or relative to `cwd`. |
+| `program` | Firmware ELF, absolute or relative to `cwd`. Optional in a PlatformIO project. |
+| `pioEnv` | PlatformIO environment to debug, when `program` is not set. Defaults to the project's default environment. |
 | `svdFile` | CMSIS-SVD file, absolute or relative to `cwd`. |
 | `rttEnabled`, `rttChannelFormats` | RTT settings (see the limits below). |
 | `cwd` | Base for relative paths. Defaults to the worktree root. |
@@ -80,8 +113,8 @@ A minimal `.zed/debug.json` entry:
 | `flashingConfig` | Flashing options for `launch`. Defaults to `{ "flashingEnabled": true }`. |
 | `coreConfigs` | Native probe-rs per-core configuration (multi-core targets). Wins over the shortcuts above. |
 
-`program`, `svdFile`, `rttEnabled` and `rttChannelFormats` are Zembed shortcuts
-for `coreConfigs[0]`. Every other key is passed to probe-rs unchanged, so any
+`program`, `pioEnv`, `svdFile`, `rttEnabled` and `rttChannelFormats` are Zembed
+shortcuts for `coreConfigs[0]`. Every other key is passed to probe-rs unchanged, so any
 option from the
 [probe-rs debug configuration](https://probe.rs/docs/tools/debugger/) works.
 
@@ -104,6 +137,14 @@ entry.
   Use the `Zembed: flash and run (RTT logs)` or `Zembed: attach RTT logs`
   tasks to read RTT / defmt logs in a terminal. A probe is used by one process
   at a time, so this cannot run alongside a debug session.
+- **PlatformIO debugging does not use `pio debug`'s own debugger.**
+  PlatformIO drives GDB through GDB/MI and writes its own messages into that
+  stream, so it cannot be plugged into Zed as a debug adapter. Zembed debugs
+  the ELF PlatformIO builds with probe-rs instead, which means `debug_tool`
+  and other `debug_*` options of `platformio.ini` are ignored, and probes or
+  chips that probe-rs does not support cannot be debugged. C and C++ variables
+  are displayed by probe-rs, whose support is more mature for Rust.
+- **`chip` is not derived from the PlatformIO `board`.** It has to be set.
 - **No peripheral (SVD) view.** Zed extensions cannot add custom panels.
   `svdFile` is still passed to probe-rs, which exposes peripheral registers as
   a variable scope when the client displays it.
@@ -117,8 +158,8 @@ entry.
 - Debug locator: turn `cargo run` / `cargo build` tasks into debug sessions
   without writing `program` by hand.
 - RTT inside the debug console.
-- PlatformIO: build / upload / monitor tasks, then debugging through
-  `pio debug` and a GDB-based adapter.
+- PlatformIO: derive `chip` from the board, and a GDB-based adapter for
+  targets probe-rs does not cover.
 
 ## Development
 
@@ -134,6 +175,7 @@ Layout:
 extension.toml               manifest; one [debug_adapters.<name>] per adapter
 src/lib.rs                   routes Zed's calls to an adapter by name
 src/adapters/probe_rs.rs     probe-rs adapter
+src/platformio.rs            platformio.ini helpers (environment, firmware path)
 debug_adapter_schemas/       JSON schema per adapter (completion in debug.json)
 templates/                   files to copy into a project's .zed/ folder
 ```

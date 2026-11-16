@@ -5,6 +5,7 @@
 //! `extension.toml`.
 
 mod adapters;
+mod platformio;
 
 use adapters::probe_rs;
 use zed_extension_api::{

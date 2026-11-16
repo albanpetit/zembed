@@ -6,6 +6,7 @@
 //! 3. translate the user's `.zed/debug.json` entry into the configuration
 //!    probe-rs expects (see `normalize_config`).
 
+use crate::platformio;
 use zed_extension_api::{
     resolve_tcp_template,
     serde_json::{self, json, Map, Value},
@@ -18,6 +19,15 @@ pub const ADAPTER_NAME: &str = "probe-rs";
 
 /// Keys Zembed accepts as shortcuts and that probe-rs itself does not know.
 const SHORTCUT_KEYS: &[&str] = &["program", "svdFile", "rttEnabled", "rttChannelFormats"];
+
+/// Project files that may name the chip, most specific first.
+const CHIP_FILES: &[&str] = &[
+    "Embed.toml",
+    ".embed.toml",
+    ".cargo/config.toml",
+    ".cargo/config",
+    platformio::PROJECT_FILE,
+];
 
 const NOT_FOUND: &str = "`probe-rs` was not found on your PATH. Install it \
 (https://probe.rs/docs/getting-started/installation/) or set its path in Zed settings: \
@@ -37,13 +47,8 @@ pub fn get_dap_binary(
         .map_err(|e| format!("invalid probe-rs debug configuration: {e}"))?;
     let request = request_kind(&raw)?;
 
-    let detect_chip = || {
-        ["Embed.toml", ".embed.toml", ".cargo/config.toml", ".cargo/config"]
-            .iter()
-            .filter_map(|file| worktree.read_text_file(file).ok())
-            .find_map(|text| chip_from_text(&text))
-    };
-    let configuration = normalize_config(raw, &root, detect_chip)?;
+    let configuration =
+        normalize_config(raw, &root, |file| worktree.read_text_file(file).ok())?;
 
     // probe-rs speaks DAP over TCP; let Zed pick a free port unless the user
     // pinned one with `tcp_connection` in debug.json.
@@ -113,11 +118,14 @@ pub fn config_to_scenario(config: DebugConfig) -> Result<DebugScenario, String> 
 /// top-level shortcuts (`program`, `svdFile`, `rttEnabled`,
 /// `rttChannelFormats`) that are folded into `coreConfigs[0]`, defaults `cwd`
 /// to the worktree root, enables flashing for `launch`, and detects the chip
-/// from the project when it is not given.
+/// from the project when it is not given. In a PlatformIO project, `program`
+/// defaults to the firmware of `pioEnv` (or of the default environment).
+///
+/// `read_file` reads a project file by its path relative to the worktree root.
 pub fn normalize_config(
     raw: Value,
     root: &str,
-    detect_chip: impl FnOnce() -> Option<String>,
+    read_file: impl Fn(&str) -> Option<String>,
 ) -> Result<Value, String> {
     let Value::Object(mut config) = raw else {
         return Err("probe-rs debug configuration must be a JSON object".into());
@@ -131,12 +139,16 @@ pub fn normalize_config(
     config.insert("cwd".into(), cwd.clone().into());
 
     if !config.get("chip").is_some_and(Value::is_string) {
-        let chip = detect_chip().ok_or(
-            "no `chip` in the debug configuration, and none could be detected from \
-             Embed.toml or the `probe-rs run --chip <CHIP>` runner in .cargo/config.toml. \
-             Add `\"chip\": \"<CHIP>\"` to the entry in .zed/debug.json \
-             (see `probe-rs chip list`).",
-        )?;
+        let chip = CHIP_FILES
+            .iter()
+            .filter_map(|file| read_file(file))
+            .find_map(|text| chip_from_text(&text))
+            .ok_or(
+                "no `chip` in the debug configuration, and none could be detected from \
+                 the project (Embed.toml, or a `probe-rs ... --chip <CHIP>` command in \
+                 .cargo/config.toml or platformio.ini). Add `\"chip\": \"<CHIP>\"` to the \
+                 entry in .zed/debug.json (see `probe-rs chip list`).",
+            )?;
         config.insert("chip".into(), chip.into());
     }
 
@@ -158,22 +170,39 @@ pub fn normalize_config(
             first.entry(key).or_insert(value);
         }
     }
+    // PlatformIO projects: the firmware location follows from the environment.
+    let pio_env = match config.remove("pioEnv") {
+        Some(Value::String(env)) => Some(env),
+        Some(_) => return Err("`pioEnv` must be a string".into()),
+        None => None,
+    };
+    let has_program = |cores: &[Value]| {
+        cores
+            .iter()
+            .any(|core| core.get("programBinary").is_some_and(Value::is_string))
+    };
+    if !has_program(&cores) {
+        let env = pio_env.or_else(|| {
+            read_file(platformio::PROJECT_FILE).and_then(|ini| platformio::default_env(&ini))
+        });
+        if let (Some(env), Some(first)) = (env, cores.first_mut()) {
+            first["programBinary"] = platformio::firmware_elf(&env).into();
+        }
+    }
+    if !has_program(&cores) {
+        return Err(
+            "no program to debug: set `program` to the path of your firmware ELF \
+             (for example target/thumbv7em-none-eabihf/debug/<crate-name>), or `pioEnv` \
+             to a PlatformIO environment"
+                .into(),
+        );
+    }
     for core in &mut cores {
         for key in ["programBinary", "svdFile"] {
             if let Some(path) = core.get(key).and_then(Value::as_str) {
                 core[key] = resolve_path(path, &cwd).into();
             }
         }
-    }
-    if !cores
-        .iter()
-        .any(|core| core.get("programBinary").is_some_and(Value::is_string))
-    {
-        return Err(
-            "no program to debug: set `program` to the path of your firmware ELF \
-             (for example target/thumbv7em-none-eabihf/debug/<crate-name>)"
-                .into(),
-        );
     }
     config.insert("coreConfigs".into(), Value::Array(cores));
 
@@ -191,7 +220,7 @@ pub fn normalize_config(
 pub fn chip_from_text(text: &str) -> Option<String> {
     for line in text.lines() {
         let line = line.trim();
-        if line.starts_with('#') {
+        if line.starts_with('#') || line.starts_with(';') {
             continue;
         }
         let tokens: Vec<&str> = line
@@ -241,6 +270,8 @@ mod tests {
         assert_eq!(chip_from_text(embed).as_deref(), Some("RP2040"));
         assert_eq!(chip_from_text("[env]\nPROBE_RS_CHIP = \"esp32c3\"").as_deref(), Some("esp32c3"));
         assert_eq!(chip_from_text("runner = \"probe-rs run\"\nchips = 3"), None);
+        let pio = "; upload_command = probe-rs download --chip old\nupload_command = probe-rs download --chip STM32F103C8 $SOURCE\n";
+        assert_eq!(chip_from_text(pio).as_deref(), Some("STM32F103C8"));
     }
 
     #[test]
@@ -251,7 +282,11 @@ mod tests {
             "svdFile": "/svd/chip.svd",
             "rttEnabled": true,
         });
-        let config = normalize_config(raw, "/work", || Some("STM32F411CEUx".into())).unwrap();
+        let config = normalize_config(raw, "/work", |file| {
+            (file == ".cargo/config.toml")
+                .then(|| "runner = \"probe-rs run --chip STM32F411CEUx\"".to_string())
+        })
+        .unwrap();
         assert_eq!(
             config,
             json!({
@@ -277,7 +312,7 @@ mod tests {
             "program": "ignored.elf",
             "coreConfigs": [{ "coreIndex": 0, "programBinary": "C:\\fw\\app.elf" }],
         });
-        let config = normalize_config(raw, "/work", || panic!("chip was given")).unwrap();
+        let config = normalize_config(raw, "/work", |_| panic!("nothing to look up")).unwrap();
         assert_eq!(config["coreConfigs"][0]["programBinary"], "C:\\fw\\app.elf");
         assert!(config.get("flashingConfig").is_none());
         assert!(config.get("program").is_none());
@@ -286,9 +321,36 @@ mod tests {
     #[test]
     fn reports_missing_chip_and_program() {
         let no_chip = json!({ "request": "launch", "program": "a.elf" });
-        assert!(normalize_config(no_chip, "/w", || None).unwrap_err().contains("chip"));
+        assert!(normalize_config(no_chip, "/w", |_| None).unwrap_err().contains("chip"));
         let no_program = json!({ "request": "launch", "chip": "RP2040" });
-        assert!(normalize_config(no_program, "/w", || None).unwrap_err().contains("program"));
+        assert!(normalize_config(no_program, "/w", |_| None).unwrap_err().contains("program"));
+    }
+
+    #[test]
+    fn finds_platformio_firmware() {
+        let project = |file: &str| {
+            (file == "platformio.ini")
+                .then(|| "[env:release]\n[env:debug]\nboard = nucleo_f411re\n".to_string())
+        };
+        let raw = json!({ "request": "launch", "chip": "STM32F411RETx" });
+        let config = normalize_config(raw, "/work", project).unwrap();
+        assert_eq!(
+            config["coreConfigs"][0]["programBinary"],
+            "/work/.pio/build/release/firmware.elf"
+        );
+
+        let raw = json!({ "request": "attach", "chip": "STM32F411RETx", "pioEnv": "debug" });
+        let config = normalize_config(raw, "/work", project).unwrap();
+        assert_eq!(
+            config["coreConfigs"][0]["programBinary"],
+            "/work/.pio/build/debug/firmware.elf"
+        );
+        assert!(config.get("pioEnv").is_none());
+
+        // An explicit program always wins over the PlatformIO default.
+        let raw = json!({ "request": "attach", "chip": "X", "program": "a.elf", "pioEnv": "debug" });
+        let config = normalize_config(raw, "/work", project).unwrap();
+        assert_eq!(config["coreConfigs"][0]["programBinary"], "/work/a.elf");
     }
 
     #[test]
