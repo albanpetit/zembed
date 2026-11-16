@@ -1,0 +1,31 @@
+// Copy to `.zed/debug.json` at the root of your firmware project, then adapt
+// `program` (and `chip`, if Zembed cannot detect it from your project).
+[
+  {
+    "label": "Zembed: build, flash and debug",
+    "adapter": "probe-rs",
+    "request": "launch",
+    // Runs before each session, so the ELF below is always up to date.
+    "build": {
+      "command": "cargo",
+      "args": ["build"]
+    },
+    // Optional when .cargo/config.toml has `runner = "probe-rs run --chip <CHIP>"`
+    // or when Embed.toml sets `chip`. See `probe-rs chip list`.
+    "chip": "STM32F411CEUx",
+    // Relative to the project root: target/<target triple>/debug/<crate name>
+    "program": "target/thumbv7em-none-eabihf/debug/my-firmware",
+    "flashingConfig": {
+      "flashingEnabled": true,
+      "haltAfterReset": false
+    },
+    "rttEnabled": true
+  },
+  {
+    "label": "Zembed: attach to running target",
+    "adapter": "probe-rs",
+    "request": "attach",
+    "chip": "STM32F411CEUx",
+    "program": "target/thumbv7em-none-eabihf/debug/my-firmware"
+  }
+]
