@@ -1,0 +1,52 @@
+// Copy to `.zed/tasks.json` at the root of your firmware project, then set
+// ZEMBED_CHIP and ZEMBED_ELF in each task that uses them.
+// Run them with `task: spawn` from the command palette.
+[
+  {
+    "label": "Zembed: build",
+    "command": "cargo build",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Zembed: build (release)",
+    "command": "cargo build --release",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    // Builds, flashes, runs and streams RTT / defmt logs in the terminal.
+    // Needs `runner = "probe-rs run --chip <CHIP>"` in .cargo/config.toml.
+    "label": "Zembed: flash and run (RTT logs)",
+    "command": "cargo run",
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Zembed: flash only",
+    "command": "cargo build && probe-rs download --chip \"$ZEMBED_CHIP\" \"$ZEMBED_ELF\" && probe-rs reset --chip \"$ZEMBED_CHIP\"",
+    "env": {
+      "ZEMBED_CHIP": "STM32F411CEUx",
+      "ZEMBED_ELF": "target/thumbv7em-none-eabihf/debug/my-firmware"
+    },
+    "use_new_terminal": false,
+    "reveal": "always"
+  },
+  {
+    // Streams RTT / defmt logs from the firmware already running on the chip.
+    "label": "Zembed: attach RTT logs",
+    "command": "probe-rs attach --chip \"$ZEMBED_CHIP\" \"$ZEMBED_ELF\"",
+    "env": {
+      "ZEMBED_CHIP": "STM32F411CEUx",
+      "ZEMBED_ELF": "target/thumbv7em-none-eabihf/debug/my-firmware"
+    },
+    "use_new_terminal": true,
+    "reveal": "always"
+  },
+  {
+    "label": "Zembed: list debug probes",
+    "command": "probe-rs list",
+    "use_new_terminal": false,
+    "reveal": "always"
+  }
+]

@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "probe-rs debug configuration (Zembed)",
+  "type": "object",
+  "required": ["request"],
+  "properties": {
+    "request": {
+      "type": "string",
+      "enum": ["launch", "attach"],
+      "description": "`launch` flashes the firmware (unless disabled in `flashingConfig`), resets the chip and debugs it. `attach` connects to the running chip without flashing or resetting."
+    },
+    "chip": {
+      "type": "string",
+      "description": "Target chip as known by probe-rs (see `probe-rs chip list`), e.g. STM32F411CEUx, nRF52840_xxAA, RP2040. When omitted, Zembed looks for it in Embed.toml and in the `probe-rs run --chip` runner of .cargo/config.toml."
+    },
+    "program": {
+      "type": "string",
+      "description": "Path to the firmware ELF, absolute or relative to `cwd`. Shortcut for `coreConfigs[0].programBinary`."
+    },
+    "svdFile": {
+      "type": "string",
+      "description": "Path to a CMSIS-SVD file, absolute or relative to `cwd`. Shortcut for `coreConfigs[0].svdFile`."
+    },
+    "rttEnabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable RTT on the target. Shortcut for `coreConfigs[0].rttEnabled`."
+    },
+    "rttChannelFormats": {
+      "$ref": "#/definitions/rttChannelFormats",
+      "description": "Shortcut for `coreConfigs[0].rttChannelFormats`."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory used to resolve relative paths. Defaults to the worktree root."
+    },
+    "probe": {
+      "type": "string",
+      "description": "Debug probe selector, `VID:PID` or `VID:PID:Serial` (see `probe-rs list`). Needed only when several probes are plugged in."
+    },
+    "speed": {
+      "type": "integer",
+      "description": "Probe speed in kHz."
+    },
+    "wireProtocol": {
+      "type": "string",
+      "enum": ["Swd", "Jtag"],
+      "description": "Wire protocol used by the probe."
+    },
+    "connectUnderReset": {
+      "type": "boolean",
+      "default": false,
+      "description": "Assert reset while connecting. Useful when the firmware disables the debug pins or sleeps."
+    },
+    "chipDescriptionPath": {
+      "type": "string",
+      "description": "Path to a custom target description YAML, for chips probe-rs does not ship."
+    },
+    "allowEraseAll": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allow probe-rs to erase the whole chip, e.g. to unlock it."
+    },
+    "consoleLogLevel": {
+      "type": "string",
+      "enum": ["Console", "Info", "Debug"],
+      "default": "Console",
+      "description": "Verbosity of probe-rs messages in the debug console."
+    },
+    "flashingConfig": {
+      "type": "object",
+      "description": "Flashing options, `launch` only. Defaults to `{ \"flashingEnabled\": true }`.",
+      "properties": {
+        "flashingEnabled": { "type": "boolean", "default": true, "description": "Flash `program` before debugging." },
+        "haltAfterReset": { "type": "boolean", "default": false, "description": "Halt on the reset vector instead of running to the first breakpoint." },
+        "fullChipErase": { "type": "boolean", "default": false },
+        "restoreUnwrittenBytes": { "type": "boolean", "default": false },
+        "verifyBeforeFlashing": { "type": "boolean", "default": false },
+        "verifyAfterFlashing": { "type": "boolean", "default": false },
+        "formatOptions": {
+          "type": "object",
+          "properties": {
+            "binaryFormat": { "type": "string", "enum": ["elf", "bin", "hex", "idf", "uf2"] }
+          }
+        }
+      }
+    },
+    "coreConfigs": {
+      "type": "array",
+      "description": "Native probe-rs per-core configuration, for multi-core targets or full control. Values set here win over the top-level shortcuts.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "coreIndex": { "type": "integer", "default": 0 },
+          "programBinary": { "type": "string" },
+          "svdFile": { "type": "string" },
+          "rttEnabled": { "type": "boolean", "default": false },
+          "rttChannelFormats": { "$ref": "#/definitions/rttChannelFormats" },
+          "catchReset": { "type": "boolean", "default": true },
+          "catchHardfault": { "type": "boolean", "default": true }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "rttChannelFormats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["channelNumber"],
+        "properties": {
+          "channelNumber": { "type": "integer" },
+          "dataFormat": { "type": "string", "enum": ["String", "BinaryLE", "Defmt"], "default": "String" },
+          "showTimestamps": { "type": "boolean", "default": false },
+          "showLocation": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}
