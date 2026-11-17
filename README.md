@@ -82,6 +82,40 @@ extension. You need Rust with the WebAssembly target:
 For the `probe-rs` adapter, also install
 [probe-rs](https://probe.rs/docs/getting-started/installation/).
 
+## Generate the configuration: `zembed init`
+
+Zed does not let an extension write files in your project, so Zembed comes
+with a small command that writes `.zed/debug.json`, `.zed/tasks.json` and
+`.zed/settings.json` for you. It needs Python 3, which PlatformIO already
+brings. Install it once:
+
+```sh
+ln -s "$PWD/cli/zembed" ~/.local/bin/zembed   # from the cloned repository
+```
+
+Then, in a firmware project (PlatformIO or embedded Rust):
+
+```sh
+zembed init            # asks a few questions
+zembed init --yes      # takes the defaults, asks nothing
+zembed doctor          # checks the project, the tools and the probe
+```
+
+`zembed init` reads `platformio.ini` (or `Cargo.toml`), picks the debug adapter
+for the chip (`gdb-openocd` for ESP32, `probe-rs` otherwise), and asks only
+what it cannot guess: the environment when there are several, the tasks to
+add, the debug sessions to add, and whether to add `build_type = debug` to
+`platformio.ini`. It never replaces an existing file without asking (or
+without `--force`), and keeps the old one as `.bak`.
+
+Useful options: `--lang fr` (labels and comments in French; the default
+follows `$LANG`), `--env <name>`, `--tasks build,upload,monitor` (among
+`build`, `upload`, `upload_monitor`, `monitor`, `clean`, `compiledb`, `test`,
+`free_probe`; empty for no `tasks.json`), `--label "XIAO ESP32S3"`,
+`--chip <probe-rs chip>`, `--no-debug`, `--no-attach`, `--no-clangd`,
+`--debug-build`, `--dry-run` (show, write nothing), `--force`. See
+`zembed init --help`.
+
 ## Troubleshooting
 
 - **"OpenOCD could not reach the chip"**: the board is unplugged, or another
@@ -233,6 +267,7 @@ entry.
 rustup target add wasm32-wasip2
 cargo test                                      # configuration logic
 cargo build --release --target wasm32-wasip2    # what Zed builds
+python3 -m unittest discover -s cli             # the zembed command
 ```
 
 Layout:
@@ -248,6 +283,7 @@ src/paths.rs                 path helpers shared by the adapters
 src/platformio.rs            platformio.ini helpers (environment, firmware path)
 debug_adapter_schemas/       JSON schema per adapter (completion in debug.json)
 templates/                   files to copy into a project's .zed/ folder
+cli/zembed                   `zembed init` / `zembed doctor` (Python 3, no dependencies)
 ```
 
 To add an adapter, create a module in `src/adapters/`, declare it in

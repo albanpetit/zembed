@@ -1,0 +1,639 @@
+#!/usr/bin/env python3
+"""zembed: sets up Zed for an embedded firmware project.
+
+    zembed init [PROJECT]     write .zed/debug.json, tasks.json, settings.json
+    zembed doctor [PROJECT]   check the project and the debugging tools
+
+Works for PlatformIO projects (ESP32 through gdb-openocd, other boards
+through probe-rs) and embedded Rust projects (probe-rs). Only uses Python's
+standard library: PlatformIO always brings a Python 3.
+"""
+
+import argparse
+import difflib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+
+# --------------------------------------------------------------- messages
+
+TEXT = {
+    "en": {
+        "debug_header": "// Debug sessions for Zed (Zembed extension). Start one with F4.",
+        "esp_probe": "// The {chip} is debugged through its USB port: the same cable as for uploading.",
+        "upload_debug": "upload and debug",
+        "build_debug": "build, flash and debug",
+        "attach": "attach",
+        "upload_debug_note": "Builds, uploads, then stops in the running firmware.",
+        "attach_note": "Attaches to the firmware already on the board, without uploading.",
+        "external_probe": "No built-in USB-JTAG on this chip: set the OpenOCD files of your probe.",
+        "tasks_header": "// Tasks (command palette: `task: spawn`, or Alt+Shift+T).",
+        "free_probe_label": "Debug: free the probe",
+        "settings_note": "clangd asks PlatformIO's compiler for its system headers.",
+        "tasks": {
+            "build": "Builds the firmware.",
+            "upload": "Builds and uploads to the board.",
+            "upload_monitor": "Uploads, then opens the serial monitor (Ctrl+C to quit).",
+            "monitor": "Serial monitor.",
+            "clean": "Deletes the build files.",
+            "compiledb": "Regenerates compile_commands.json for code completion (clangd).",
+            "test": "Runs the unit tests.",
+            "free_probe": "If debugging cannot start because the probe is busy: stops leftover debug servers.",
+            "cargo_build": "Builds the firmware.",
+            "cargo_run": "Flashes and runs, with RTT logs.",
+        },
+        "q_env": "PlatformIO environment to set up",
+        "q_tasks": "Tasks",
+        "q_upload_debug": "Add an \"upload and debug\" session?",
+        "q_attach": "Add an \"attach without uploading\" session?",
+        "q_build_type": "Add `build_type = debug` to [env:{env}] in platformio.ini (keeps variables visible)?",
+        "q_overwrite": "Replace .zed/{name}? (a .bak copy is kept)",
+        "q_chip": "Chip as named by probe-rs (`probe-rs chip list`), e.g. STM32F411RETx",
+        "q_program": "Firmware ELF, e.g. target/thumbv7em-none-eabihf/debug/my-firmware",
+        "q_write": "Write these files?",
+        "unchanged": "unchanged",
+        "written": "written",
+        "skipped": "kept as is",
+        "skipped_hint": "already exists, kept as is (--force to replace it, a .bak copy is kept)",
+        "yes": "y",
+        "no": "n",
+        "next": "Next: open the project in Zed, run `task: spawn` for the tasks, and F4 to debug.",
+    },
+    "fr": {
+        "debug_header": "// Sessions de débogage pour Zed (extension Zembed). Lancer avec F4.",
+        "esp_probe": "// La sonde de l'{chip}, c'est son port USB : le même câble que pour téléverser.",
+        "upload_debug": "upload et debug",
+        "build_debug": "build, flash et debug",
+        "attach": "attach",
+        "upload_debug_note": "Compile, téléverse, puis s'arrête dans le programme.",
+        "attach_note": "S'attache au programme déjà présent sur la carte, sans téléverser.",
+        "external_probe": "Pas d'USB-JTAG intégré sur cette puce : indiquer les fichiers OpenOCD de la sonde.",
+        "tasks_header": "// Tâches (palette de commandes : « task: spawn », ou Alt+Shift+T).",
+        "free_probe_label": "Debug: libérer la sonde",
+        "settings_note": "clangd interroge le compilateur de PlatformIO pour trouver ses en-têtes système.",
+        "tasks": {
+            "build": "Compile le firmware.",
+            "upload": "Compile et téléverse sur la carte.",
+            "upload_monitor": "Téléverse puis ouvre le moniteur série (Ctrl+C pour quitter).",
+            "monitor": "Moniteur série.",
+            "clean": "Supprime les fichiers compilés.",
+            "compiledb": "Régénère compile_commands.json pour l'autocomplétion (clangd).",
+            "test": "Lance les tests unitaires.",
+            "free_probe": "Si le debug refuse de démarrer car la sonde est occupée : arrête les serveurs de debug restés ouverts.",
+            "cargo_build": "Compile le firmware.",
+            "cargo_run": "Flashe et lance, avec les logs RTT.",
+        },
+        "q_env": "Environnement PlatformIO à configurer",
+        "q_tasks": "Tâches",
+        "q_upload_debug": "Ajouter une session « upload et debug » ?",
+        "q_attach": "Ajouter une session « attach » (sans téléverser) ?",
+        "q_build_type": "Ajouter `build_type = debug` à [env:{env}] dans platformio.ini (garde les variables visibles) ?",
+        "q_overwrite": "Remplacer .zed/{name} ? (une copie .bak est gardée)",
+        "q_chip": "Puce telle que probe-rs la nomme (`probe-rs chip list`), ex. STM32F411RETx",
+        "q_program": "Firmware ELF, ex. target/thumbv7em-none-eabihf/debug/mon-firmware",
+        "q_write": "Écrire ces fichiers ?",
+        "unchanged": "inchangé",
+        "written": "écrit",
+        "skipped": "laissé tel quel",
+        "skipped_hint": "existe déjà, laissé tel quel (--force pour le remplacer, une copie .bak est gardée)",
+        "yes": "o",
+        "no": "n",
+        "next": "Ensuite : ouvrir le projet dans Zed, « task: spawn » pour les tâches, F4 pour déboguer.",
+    },
+}
+
+# key: (label, pio arguments, opens its own terminal)
+PIO_TASKS = {
+    "build": ("build", "run", False),
+    "upload": ("upload", "run -t upload", False),
+    "upload_monitor": ("upload + monitor", "run -t upload -t monitor", True),
+    "monitor": ("monitor", "device monitor", True),
+    "clean": ("clean", "run -t clean", False),
+    "compiledb": ("refresh compiledb", "run -t compiledb", False),
+    "test": ("test", "test", False),
+}
+ALL_TASKS = list(PIO_TASKS) + ["free_probe"]
+DEFAULT_TASKS = ["build", "upload", "upload_monitor", "monitor", "clean", "compiledb", "free_probe"]
+FREE_PROBE = "pkill -f 'probe-rs [d]ap-server'; pkill -f 'openocd.*gdb_port [p]ipe'; echo ok"
+
+# ------------------------------------------------------------ Espressif
+
+ESP_CHIPS = ["esp32s3", "esp32s2", "esp32c61", "esp32c6", "esp32c5", "esp32c3", "esp32c2", "esp32h2", "esp32p4", "esp32"]
+ESP_USB_JTAG = {"esp32s3", "esp32c3", "esp32c5", "esp32c6", "esp32h2", "esp32p4"}
+
+
+def esp_chip(name):
+    if not name:
+        return None
+    n = re.sub(r"[-_ ]", "", name.lower())
+    return next((c for c in ESP_CHIPS if n == c), None) or next((c for c in ESP_CHIPS if c in n), None)
+
+
+def esp_pretty(chip):
+    return "ESP32" + ("-" + chip[5:].upper() if len(chip) > 5 else "")
+
+
+def version_dirs(root):
+    try:
+        return sorted((p for p in Path(root).iterdir()), reverse=True)
+    except OSError:
+        return []
+
+
+def executable(p):
+    return p is not None and os.path.isfile(p) and os.access(p, os.X_OK)
+
+
+def find_esp_gdb(chip):
+    """GDB executables found, in the order the gdb-openocd adapter tries them."""
+    xtensa = chip in ("esp32", "esp32s2", "esp32s3")
+    pkg = "xtensa-esp-elf-gdb" if xtensa else "riscv32-esp-elf-gdb"
+    binary = f"xtensa-{chip}-elf-gdb" if xtensa else "riscv32-esp-elf-gdb"
+    candidates = []
+    for root in (HOME / ".arduino15/packages/esp32/tools" / pkg, HOME / "Library/Arduino15/packages/esp32/tools" / pkg):
+        candidates += [d / "bin" / binary for d in version_dirs(root)]
+    idf = Path(os.environ.get("IDF_TOOLS_PATH", HOME / ".espressif"))
+    candidates += [d / pkg / "bin" / binary for d in version_dirs(idf / "tools" / pkg)]
+    candidates.append(HOME / ".platformio/packages" / f"tool-{pkg}" / "bin" / binary)
+    if shutil.which(binary):
+        candidates.append(Path(shutil.which(binary)))
+    found = []
+    for c in candidates:
+        if executable(c):
+            dap = run([str(c), "-nx", "-batch", "-ex", "python import gdb.dap"]).returncode == 0
+            found.append((str(c), dap))
+    return binary, found
+
+
+def find_esp_openocd():
+    candidates = []
+    for root in (HOME / ".arduino15/packages/esp32/tools/openocd-esp32", HOME / "Library/Arduino15/packages/esp32/tools/openocd-esp32"):
+        candidates += [d / "bin/openocd" for d in version_dirs(root)]
+    idf = Path(os.environ.get("IDF_TOOLS_PATH", HOME / ".espressif"))
+    candidates += [d / "openocd-esp32/bin/openocd" for d in version_dirs(idf / "tools/openocd-esp32")]
+    candidates.append(HOME / ".platformio/packages/tool-openocd-esp32/bin/openocd")
+    return [str(c) for c in candidates if executable(c)]
+
+
+def run(cmd, timeout=15):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+
+
+# ---------------------------------------------------------- the project
+
+
+def parse_ini(text):
+    """platformio.ini as {section: {key: value}} (multi-line values joined)."""
+    sections, current, last = {}, None, None
+    for raw in text.splitlines():
+        line = re.sub(r"\s;.*$", "", raw)
+        stripped = line.strip()
+        if not stripped or stripped[0] in ";#":
+            continue
+        m = re.match(r"^\[(.+)\]$", stripped)
+        if m:
+            current = sections.setdefault(m.group(1).strip(), {})
+            last = None
+        elif current is not None:
+            kv = re.match(r"^([^=]+?)\s*=\s*(.*)$", stripped)
+            if kv and not line[:1].isspace():
+                last = kv.group(1)
+                current[last] = kv.group(2)
+            elif last:
+                current[last] += "\n" + stripped
+    return sections
+
+
+def board_info(board):
+    """PlatformIO's definition of `board`: (mcu, human name)."""
+    for platform in version_dirs(HOME / ".platformio/platforms"):
+        f = platform / "boards" / f"{board}.json"
+        if f.is_file():
+            try:
+                data = json.loads(f.read_text())
+                return data.get("build", {}).get("mcu"), data.get("name")
+            except (OSError, ValueError):
+                break
+    return None, None
+
+
+class PioEnv:
+    def __init__(self, name, values):
+        self.name = name
+        self.board = values.get("board")
+        self.build_type = values.get("build_type")
+        mcu, self.board_name = board_info(self.board) if self.board else (None, None)
+        self.mcu = values.get("board_build.mcu") or mcu
+        self.chip = esp_chip(self.mcu) or esp_chip(self.board)
+
+
+def pio_envs(root):
+    sections = parse_ini((root / "platformio.ini").read_text())
+    shared = sections.get("env", {})
+    envs = [PioEnv(s[4:].strip(), {**shared, **v}) for s, v in sections.items() if s.startswith("env:")]
+    declared = re.split(r"[,\s]+", sections.get("platformio", {}).get("default_envs", "").strip())
+    default = next((d for d in declared if any(e.name == d for e in envs)), envs[0].name if envs else None)
+    return envs, default
+
+
+def find_pio():
+    """(command to write in the files, warning or None)."""
+    if shutil.which("pio"):
+        return "pio", None
+    for p in (HOME / ".platformio/penv/bin/pio", HOME / ".local/bin/pio"):
+        if executable(p):
+            short = "~/" + str(p.relative_to(HOME))
+            return str(p), f"`pio` is not on your PATH: the files use {short}."
+    return "pio", "PlatformIO (`pio`) was not found. Install PlatformIO Core: https://docs.platformio.org/en/latest/core/installation/"
+
+
+def shell_problems():
+    problems = []
+    bashrc = HOME / ".bashrc"
+    if bashrc.is_file():
+        for i, line in enumerate(bashrc.read_text(errors="replace").splitlines(), 1):
+            if re.match(r"^\s*exec\s+(zsh|fish|nu)\b", line):
+                problems.append(
+                    f"~/.bashrc line {i} runs `{line.strip()}` unconditionally: Zed's tasks will open an empty "
+                    f"terminal. Replace it with: [ -z \"$BASH_EXECUTION_STRING\" ] && {line.strip()}"
+                )
+    return problems
+
+
+def busy_probe():
+    r = run(["pgrep", "-af", "openocd.*gdb_port [p]ipe|probe-rs [d]ap-server|probe-rs (run|attach|[g]db)"])
+    return [l[:120] for l in r.stdout.splitlines() if l.strip()]
+
+
+# ------------------------------------------------------------ generation
+
+
+def dumps(value):
+    """Indented JSON, with arrays of plain values kept on one line."""
+    text = json.dumps(value, indent=2, ensure_ascii=False)
+    return re.sub(
+        r"\[\s*\n((?:\s*(?:\"(?:[^\"\\]|\\.)*\"|-?\d+|true|false|null),?\n)+)\s*\]",
+        lambda m: "[" + ", ".join(x.strip().rstrip(",") for x in m.group(1).strip().splitlines()) + "]",
+        text,
+    )
+
+
+def jsonc(header_lines, entries):
+    """A JSON array with a `// comment` before each entry."""
+    parts = []
+    for comment, value in entries:
+        body = dumps(value)
+        body = "\n".join("  " + l for l in body.splitlines())
+        parts.append((f"  // {comment}\n" if comment else "") + body)
+    return "\n".join(header_lines) + "\n[\n" + ",\n".join(parts) + "\n]\n"
+
+
+def settings_json(t):
+    return (
+        "{\n"
+        f"  // {t['settings_note']}\n"
+        '  "lsp": {\n    "clangd": {\n      "binary": {\n'
+        '        "arguments": ["--query-driver=**/.platformio/packages/toolchain-*/bin/*"]\n'
+        "      }\n    }\n  }\n}\n"
+    )
+
+
+def pio_files(opts, env, default_env, pio, t):
+    files = {}
+    env_flag = [] if env.name == default_env else ["-e", env.name]
+    label = opts.label or (env.board_name or env.board or env.name)
+    if opts.debug:
+        entries = []
+        if env.chip:
+            extra = {} if env.name == default_env else {"pioEnv": env.name}
+            if env.chip not in ESP_USB_JTAG:
+                extra["openocdArgs"] = ["-f", "board/esp32-wrover-kit-3.3v.cfg"]
+            if opts.upload_debug:
+                entries.append((t["upload_debug_note"], {
+                    "label": f"{label}: {t['upload_debug']}",
+                    "adapter": "gdb-openocd",
+                    "build": {"command": pio, "args": ["run", "-t", "upload", *env_flag]},
+                    **extra,
+                }))
+            if opts.attach:
+                entries.append((t["attach_note"], {"label": f"{label}: {t['attach']}", "adapter": "gdb-openocd", **extra}))
+            header = [t["debug_header"]]
+            if env.chip in ESP_USB_JTAG:
+                header.append(t["esp_probe"].format(chip=esp_pretty(env.chip)))
+            else:
+                header.append("// " + t["external_probe"])
+        else:
+            common = {"chip": opts.chip or "CHIP"}
+            if env.name != default_env:
+                common["pioEnv"] = env.name
+            if opts.upload_debug:
+                entries.append((t["upload_debug_note"], {
+                    "label": f"{label}: {t['build_debug']}",
+                    "adapter": "probe-rs",
+                    "request": "launch",
+                    "build": {"command": pio, "args": ["debug", *env_flag]},
+                    **common,
+                    "flashingConfig": {"flashingEnabled": True, "haltAfterReset": False},
+                }))
+            if opts.attach:
+                entries.append((t["attach_note"], {"label": f"{label}: {t['attach']}", "adapter": "probe-rs", "request": "attach", **common}))
+            header = [t["debug_header"]]
+        if entries:
+            files["debug.json"] = jsonc(header, entries)
+
+    if opts.tasks:
+        flag = f" -e {env.name}" if env.name != default_env else ""
+        tasks = []
+        for key in opts.tasks:
+            if key == "free_probe":
+                tasks.append((t["tasks"][key], {"label": t["free_probe_label"], "command": FREE_PROBE, "reveal": "always"}))
+                continue
+            name, sub, own_terminal = PIO_TASKS[key]
+            task = {"label": f"pio: {name}", "command": f"{pio} {sub}{flag}"}
+            if own_terminal:
+                task["use_new_terminal"] = True
+            task["reveal"] = "always"
+            tasks.append((t["tasks"][key], task))
+        files["tasks.json"] = jsonc([t["tasks_header"]], tasks)
+
+    if opts.clangd:
+        files["settings.json"] = settings_json(t)
+    return files
+
+
+def rust_files(opts, root, t):
+    cargo = (root / "Cargo.toml").read_text()
+    config = (root / ".cargo/config.toml").read_text() if (root / ".cargo/config.toml").is_file() else ""
+    embed = (root / "Embed.toml").read_text() if (root / "Embed.toml").is_file() else ""
+    crate = (re.search(r'^\s*name\s*=\s*"([^"]+)"', cargo, re.M) or [None, "firmware"])[1]
+    target = (re.search(r'^\s*target\s*=\s*"([^"]+)"', config, re.M) or [None, None])[1]
+    detected_chip = (re.search(r'chip\s*=\s*"([^"]+)"', embed) or re.search(r"--chip[ =]+([A-Za-z0-9_-]+)", config) or [None, None])[1]
+    program = opts.program or (f"target/{target}/debug/{crate}" if target else None)
+    if not program:
+        program = ask(opts, t["q_program"], None)
+    common = {"program": program}
+    if not detected_chip:
+        common["chip"] = opts.chip or ask(opts, t["q_chip"], "CHIP")
+    files = {}
+    if opts.debug:
+        entries = []
+        if opts.upload_debug:
+            entries.append((t["upload_debug_note"], {
+                "label": f"{crate}: {t['build_debug']}", "adapter": "probe-rs", "request": "launch",
+                "build": {"command": "cargo", "args": ["build"]}, **common,
+                "flashingConfig": {"flashingEnabled": True, "haltAfterReset": False}, "rttEnabled": True,
+            }))
+        if opts.attach:
+            entries.append((t["attach_note"], {"label": f"{crate}: {t['attach']}", "adapter": "probe-rs", "request": "attach", **common}))
+        if entries:
+            files["debug.json"] = jsonc([t["debug_header"]], entries)
+    if opts.tasks:
+        files["tasks.json"] = jsonc([t["tasks_header"]], [
+            (t["tasks"]["cargo_build"], {"label": "cargo: build", "command": "cargo build", "reveal": "always"}),
+            (t["tasks"]["cargo_run"], {"label": "cargo: run", "command": "cargo run", "use_new_terminal": True, "reveal": "always"}),
+            (t["tasks"]["free_probe"], {"label": t["free_probe_label"], "command": FREE_PROBE, "reveal": "always"}),
+        ])
+    return files
+
+
+# ------------------------------------------------------------ prompting
+
+
+def interactive(opts):
+    return not opts.yes and sys.stdin.isatty()
+
+
+def ask(opts, question, default):
+    if not interactive(opts):
+        return default
+    suffix = f" [{default}]" if default else ""
+    answer = input(f"{question}{suffix} ").strip()
+    return answer or default
+
+
+def confirm(opts, question, default=True):
+    if not interactive(opts):
+        return default
+    t = TEXT[opts.lang]
+    choices = f"[{t['yes'].upper()}/{t['no']}]" if default else f"[{t['yes']}/{t['no'].upper()}]"
+    answer = input(f"{question} {choices} ").strip().lower()
+    if not answer:
+        return default
+    return answer[0] in ("y", "o")
+
+
+def choose_tasks(opts, t):
+    if opts.tasks is not None or not interactive(opts):
+        return opts.tasks if opts.tasks is not None else DEFAULT_TASKS
+    print(f"{t['q_tasks']}:")
+    for i, key in enumerate(ALL_TASKS, 1):
+        mark = "x" if key in DEFAULT_TASKS else " "
+        print(f"  {i}. [{mark}] {key:15} {t['tasks'][key]}")
+    answer = input("Numbers to keep, e.g. 1,2,4 (Enter = the ticked ones): " if opts.lang == "en"
+                   else "Numéros à garder, ex. 1,2,4 (Entrée = ceux cochés) : ").strip()
+    if not answer:
+        return DEFAULT_TASKS
+    picked = [ALL_TASKS[int(n) - 1] for n in re.findall(r"\d+", answer) if 1 <= int(n) <= len(ALL_TASKS)]
+    return picked
+
+
+# ---------------------------------------------------------------- commands
+
+
+def add_debug_build_type(root, env_name):
+    ini = root / "platformio.ini"
+    lines = ini.read_text().split("\n")
+    start = next(i for i, l in enumerate(lines) if l.strip() == f"[env:{env_name}]")
+    end = start + 1
+    while end < len(lines) and not lines[end].strip().startswith("["):
+        end += 1
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    lines.insert(end, "build_type = debug")
+    ini.write_text("\n".join(lines))
+
+
+def cmd_init(opts):
+    root = Path(opts.project).resolve()
+    t = TEXT[opts.lang]
+    warnings = shell_problems()
+
+    if (root / "platformio.ini").is_file():
+        envs, default_env = pio_envs(root)
+        if not envs:
+            sys.exit("platformio.ini has no [env:...] section.")
+        names = [e.name for e in envs]
+        env_name = opts.env or (ask(opts, f"{t['q_env']} ({', '.join(names)})", default_env) if len(envs) > 1 else default_env)
+        if env_name not in names:
+            sys.exit(f"Unknown environment {env_name}. Available: {', '.join(names)}")
+        env = next(e for e in envs if e.name == env_name)
+        pio, pio_warning = find_pio()
+        if pio_warning:
+            warnings.append(pio_warning)
+        opts.tasks = choose_tasks(opts, t)
+        if opts.debug:
+            opts.upload_debug = opts.upload_debug and confirm(opts, t["q_upload_debug"])
+            opts.attach = opts.attach and confirm(opts, t["q_attach"])
+            if not env.chip and not opts.chip:
+                opts.chip = ask(opts, t["q_chip"], "CHIP")
+        files = pio_files(opts, env, default_env, pio, t)
+        add_build_type = False
+        if opts.debug and env.build_type != "debug" and opts.debug_build is not False:
+            add_build_type = opts.debug_build or confirm(opts, t["q_build_type"].format(env=env.name))
+        if env.chip and opts.debug:
+            binary, gdbs = find_esp_gdb(env.chip)
+            if not any(dap for _, dap in gdbs):
+                warnings.append(f"No {binary} with DAP mode (GDB 14+ with Python) found: install a recent \"esp32\" board package from the Arduino IDE boards manager, or ESP-IDF.")
+            if not find_esp_openocd():
+                warnings.append("No Espressif OpenOCD found: install the \"esp32\" board package from the Arduino IDE boards manager, or ESP-IDF.")
+    elif (root / "Cargo.toml").is_file():
+        if opts.tasks is None:
+            opts.tasks = ["build"]  # any non-empty list: the Rust tasks are fixed
+        files = rust_files(opts, root, t)
+        add_build_type = False
+        if opts.debug and not (shutil.which("probe-rs") or executable(HOME / ".cargo/bin/probe-rs")):
+            warnings.append("probe-rs is not installed: https://probe.rs/docs/getting-started/installation/")
+    else:
+        sys.exit(f"{root}: neither platformio.ini nor Cargo.toml. Run zembed init from the firmware project's folder.")
+
+    # Show and write.
+    zed = root / ".zed"
+    results = []
+    for name, content in files.items():
+        target = zed / name
+        old = target.read_text() if target.is_file() else None
+        if old == content:
+            results.append((name, t["unchanged"]))
+            continue
+        if opts.dry_run:
+            print(f"----- .zed/{name}")
+            if old is None:
+                print(content, end="")
+            else:
+                sys.stdout.writelines(difflib.unified_diff(old.splitlines(True), content.splitlines(True), f".zed/{name}", f".zed/{name} (new)"))
+            continue
+        if old is not None and not opts.force:
+            if interactive(opts):
+                sys.stdout.writelines(difflib.unified_diff(old.splitlines(True), content.splitlines(True), f".zed/{name}", f".zed/{name} (new)"))
+                if not confirm(opts, t["q_overwrite"].format(name=name), default=False):
+                    results.append((name, t["skipped"]))
+                    continue
+            else:
+                results.append((name, t["skipped_hint"]))
+                continue
+        zed.mkdir(exist_ok=True)
+        if old is not None:
+            target.with_name(name + ".bak").write_text(old)
+        target.write_text(content)
+        results.append((name, t["written"] + (" (.bak)" if old is not None else "")))
+
+    if add_build_type and opts.dry_run:
+        print(f"----- platformio.ini: + build_type = debug  [env:{env.name}]")
+    if add_build_type and not opts.dry_run:
+        add_debug_build_type(root, env.name)
+        results.append(("../platformio.ini", f"build_type = debug [env:{env.name}]"))
+
+    for name, status in results:
+        print(f"  .zed/{name}: {status}" if not name.startswith("..") else f"  platformio.ini: {status}")
+    for w in warnings:
+        print(f"  ! {w}")
+    if not opts.dry_run:
+        print(t["next"])
+
+
+def cmd_doctor(opts):
+    root = Path(opts.project).resolve()
+    ok = True
+
+    def line(good, text):
+        nonlocal ok
+        ok &= good
+        print(f"  {'ok' if good else '!!'}  {text}")
+
+    print(f"Project: {root}")
+    if (root / "platformio.ini").is_file():
+        envs, default_env = pio_envs(root)
+        for e in envs:
+            chip = esp_pretty(e.chip) if e.chip else (e.mcu or "?")
+            print(f"  -- [env:{e.name}]{' (default)' if e.name == default_env else ''}: board {e.board}, chip {chip}, build_type {e.build_type or 'release'}")
+        pio, warning = find_pio()
+        line(warning is None or "not on your PATH" in warning, warning or f"pio: {shutil.which('pio')}")
+        env = next(e for e in envs if e.name == default_env) if envs else None
+        if env and env.chip:
+            binary, gdbs = find_esp_gdb(env.chip)
+            usable = [p for p, dap in gdbs if dap]
+            line(bool(usable), f"{binary} with DAP mode: {usable[0] if usable else 'not found'}")
+            for p, dap in gdbs:
+                if not dap:
+                    print(f"        (ignored, no DAP mode: {p})")
+            ocd = find_esp_openocd()
+            line(bool(ocd), f"Espressif OpenOCD: {ocd[0] if ocd else 'not found'}")
+            line(env.chip in ESP_USB_JTAG, f"{esp_pretty(env.chip)} built-in USB-JTAG" if env.chip in ESP_USB_JTAG else f"{esp_pretty(env.chip)} has no built-in USB-JTAG: needs an external probe")
+            line(env.build_type == "debug", "build_type = debug" if env.build_type == "debug" else f"no build_type = debug in [env:{env.name}] (variables may be optimized out)")
+    elif (root / "Cargo.toml").is_file():
+        if opts.tasks is None:
+            opts.tasks = ["build"]  # any non-empty list: the Rust tasks are fixed
+        probe = shutil.which("probe-rs") or (str(HOME / ".cargo/bin/probe-rs") if executable(HOME / ".cargo/bin/probe-rs") else None)
+        line(bool(probe), f"probe-rs: {probe or 'not found'}")
+    else:
+        line(False, "neither platformio.ini nor Cargo.toml here")
+    for name in ("debug.json", "tasks.json", "settings.json"):
+        print(f"  --  .zed/{name}: {'present' if (root / '.zed' / name).is_file() else 'missing (zembed init)'}")
+    busy = busy_probe()
+    line(not busy, "probe free" if not busy else "probe used by: " + "; ".join(busy))
+    for problem in shell_problems():
+        line(False, problem)
+    sys.exit(0 if ok else 1)
+
+
+def main():
+    lang = "fr" if os.environ.get("LANG", "").lower().startswith("fr") else "en"
+    parser = argparse.ArgumentParser(prog="zembed", description="Sets up Zed (Zembed extension) for an embedded firmware project.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    init = sub.add_parser("init", help="write .zed/debug.json, tasks.json and settings.json")
+    init.add_argument("project", nargs="?", default=".", help="project folder (default: current folder)")
+    init.add_argument("--lang", choices=["en", "fr"], default=lang, help=f"language of labels and comments (default: {lang})")
+    init.add_argument("--env", help="PlatformIO environment (default: the project's default)")
+    init.add_argument("--tasks", type=lambda s: [x for x in s.split(",") if x], help=f"comma-separated, among {','.join(ALL_TASKS)} (empty: no tasks.json)")
+    init.add_argument("--label", help="prefix of the debug session names (default: the board's name)")
+    init.add_argument("--chip", help="chip for probe-rs (non-ESP32 boards, Rust)")
+    init.add_argument("--program", help="firmware ELF (Rust)")
+    init.add_argument("--no-debug", dest="debug", action="store_false", help="no debug.json")
+    init.add_argument("--no-upload-debug", dest="upload_debug", action="store_false", help="no \"upload and debug\" session")
+    init.add_argument("--no-attach", dest="attach", action="store_false", help="no \"attach\" session")
+    init.add_argument("--no-clangd", dest="clangd", action="store_false", help="no settings.json")
+    init.add_argument("--debug-build", dest="debug_build", action="store_true", default=None, help="add build_type = debug to platformio.ini")
+    init.add_argument("--no-debug-build", dest="debug_build", action="store_false", help="leave platformio.ini alone")
+    init.add_argument("-y", "--yes", action="store_true", help="no questions: take the defaults")
+    init.add_argument("-n", "--dry-run", action="store_true", help="show what would be written, write nothing")
+    init.add_argument("-f", "--force", action="store_true", help="replace existing files without asking (.bak copies are kept)")
+    init.set_defaults(func=cmd_init)
+
+    doctor = sub.add_parser("doctor", help="check the project and the debugging tools")
+    doctor.add_argument("project", nargs="?", default=".")
+    doctor.set_defaults(func=cmd_doctor)
+
+    opts = parser.parse_args()
+    unknown = [t for t in (getattr(opts, "tasks", None) or []) if t not in ALL_TASKS]
+    if unknown:
+        parser.error(f"unknown task(s) {', '.join(unknown)}; choose among {', '.join(ALL_TASKS)}")
+    if opts.command == "init" and opts.yes and opts.debug_build is None:
+        opts.debug_build = False  # never edit platformio.ini without being asked
+    opts.func(opts)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)
