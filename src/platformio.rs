@@ -36,6 +36,38 @@ pub fn default_env(ini: &str) -> Option<String> {
     first_env.filter(|env| !env.is_empty()).map(str::to_string)
 }
 
+/// Value of `key` for an environment: from `[env:<env>]`, otherwise from
+/// the shared `[env]` section. `extends` and `${...}` are not resolved.
+pub fn env_value(ini: &str, env: &str, key: &str) -> Option<String> {
+    let wanted = format!("env:{env}");
+    let mut section = String::new();
+    let mut own = None;
+    let mut shared = None;
+    for line in ini.lines() {
+        let line = line.trim();
+        if line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.split(']').next()) {
+            section = name.trim().to_string();
+        } else if let Some((k, v)) = line.split_once('=') {
+            if k.trim() != key {
+                continue;
+            }
+            let value = v.split(" ;").next().unwrap_or("").trim().to_string();
+            if value.is_empty() {
+                continue;
+            }
+            if section == wanted {
+                own.get_or_insert(value);
+            } else if section == "env" {
+                shared.get_or_insert(value);
+            }
+        }
+    }
+    own.or(shared)
+}
+
 /// Path of the ELF PlatformIO builds for an environment, relative to the
 /// project root (with the default `build_dir`).
 pub fn firmware_elf(env: &str) -> String {
@@ -59,6 +91,15 @@ mod tests {
         let interpolated = "[platformio]\ndefault_envs = ${sysenv.ENVS}\n[env:a]\n";
         assert_eq!(default_env(interpolated).as_deref(), Some("a"));
         assert_eq!(default_env("[platformio]\nsrc_dir = main\n"), None);
+    }
+
+    #[test]
+    fn reads_env_values() {
+        let ini = "[env]\nboard = shared\nframework = arduino\n\n[env:xiao]\nboard = seeed_xiao_esp32s3 ; comment\n[env:other]\n";
+        assert_eq!(env_value(ini, "xiao", "board").as_deref(), Some("seeed_xiao_esp32s3"));
+        assert_eq!(env_value(ini, "other", "board").as_deref(), Some("shared"));
+        assert_eq!(env_value(ini, "xiao", "framework").as_deref(), Some("arduino"));
+        assert_eq!(env_value(ini, "xiao", "platform"), None);
     }
 
     #[test]

@@ -1,38 +1,20 @@
-// Copy to `.zed/debug.json` at the root of your PlatformIO project, then set
-// `chip` to your microcontroller as named by probe-rs (`probe-rs chip list`).
+// Debugging C/C++ (Arduino, ESP-IDF) firmware on an ESP32 with GDB + OpenOCD.
+// Copy to `.zed/debug.json` at the root of your PlatformIO project.
 //
-// These sessions debug through probe-rs, not through PlatformIO's own
-// debugger: you need a probe supported by probe-rs (ST-Link, J-Link,
-// CMSIS-DAP, or the built-in USB-JTAG of ESP32-C3/C6/S3).
+// Nothing else to set for chips with built-in USB-JTAG (ESP32-S3, C3, C5, C6,
+// H2, P4) plugged in over USB: Zembed reads the board from platformio.ini,
+// finds GDB and OpenOCD (Arduino IDE, ESP-IDF or PlatformIO tools), checks
+// that the board answers, and debugs .pio/build/<env>/firmware.elf.
+// See the Zembed README for the optional keys.
 [
   {
-    "label": "PlatformIO: build, flash and debug",
-    "adapter": "probe-rs",
-    "request": "launch",
-    // Builds the firmware with debug symbols before each session.
-    // Add "-e", "<environment>" to the args to build another environment.
-    "build": {
-      "command": "pio",
-      "args": ["debug"]
-    },
-    "chip": "STM32F411RETx",
-    // Optional: the environment whose firmware is debugged
-    // (.pio/build/<pioEnv>/firmware.elf). Defaults to your default environment.
-    // "pioEnv": "nucleo_f411re",
-    "flashingConfig": {
-      "flashingEnabled": true,
-      "haltAfterReset": false
-    }
+    "label": "Upload and debug",
+    "adapter": "gdb-openocd",
+    // Uploads over serial before the session starts.
+    "build": { "command": "pio", "args": ["run", "-t", "upload"] }
   },
   {
-    // Debugs the firmware already on the chip, without flashing or resetting.
-    // Upload first with the "PlatformIO: upload" task. This is the safest
-    // choice on ESP32, where PlatformIO knows how to flash the bootloader and
-    // partitions.
-    "label": "PlatformIO: attach to running target",
-    "adapter": "probe-rs",
-    "request": "attach",
-    "chip": "STM32F411RETx"
-    // "pioEnv": "nucleo_f411re"
+    "label": "Attach to running firmware",
+    "adapter": "gdb-openocd"
   }
 ]
