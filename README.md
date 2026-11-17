@@ -21,13 +21,29 @@ cable you upload with.
 1. **Install the tools once.** In the Arduino IDE, install the "esp32" board
    package (Boards Manager, version 3.x). It ships the GDB and OpenOCD Zembed
    needs. ESP-IDF or a recent PlatformIO `espressif32` platform work too.
-2. **Add two files to your project.** Copy
-   [`templates/platformio/debug.json`](templates/platformio/debug.json)
-   to `.zed/debug.json`, and add `build_type = debug` to your environment in
-   `platformio.ini` so the firmware is not optimized.
-3. **Debug.** Run `debugger: start` (F4) and pick **Upload and debug**.
+2. **Prepare the project.** Add `build_type = debug` to your environment in
+   `platformio.ini` so the firmware is not optimized, and copy
+   [`templates/platformio/tasks.json`](templates/platformio/tasks.json) to
+   `.zed/tasks.json` (build, upload and monitor tasks) if the project has no
+   PlatformIO tasks yet.
+3. **Debug.** Open a C or C++ file, run `debugger: start` (F4) and pick
+   **Debug: PlatformIO: upload** (any `pio run` task works).
 
-The whole `.zed/debug.json` is:
+No `.zed/debug.json` is needed: Zembed turns every `pio run` task into an
+"upload, then debug" session. A plain `pio run` gets `-t upload` added, the
+`-e <env>` of the task picks the firmware, and tasks that never end
+(`monitor`) or do not flash (`clean`, `test`, ...) are left alone. To attach
+to the running firmware without uploading, use the **Launch** tab of
+`debugger: start`, pick the `gdb-openocd` adapter and leave the program empty.
+
+Zembed reads the board from `platformio.ini`, finds GDB and OpenOCD, checks
+that the board answers, then halts the chip. Set breakpoints and continue.
+Both cores are debugged, and FreeRTOS tasks show up as threads. When the
+session ends, the firmware keeps running.
+
+To name the sessions or change a setting, write them in `.zed/debug.json`
+instead, starting from
+[`templates/platformio/debug.json`](templates/platformio/debug.json):
 
 ```json
 [
@@ -39,15 +55,6 @@ The whole `.zed/debug.json` is:
   { "label": "Attach to running firmware", "adapter": "gdb-openocd" }
 ]
 ```
-
-Zembed reads the board from `platformio.ini`, finds GDB and OpenOCD, checks
-that the board answers, then halts the chip. Set breakpoints and continue.
-Both cores are debugged, and FreeRTOS tasks show up as threads. When the
-session ends, the firmware keeps running.
-
-For the build, upload and serial monitor tasks, copy
-[`templates/platformio/tasks.json`](templates/platformio/tasks.json) to
-`.zed/tasks.json` and run them with `task: spawn`.
 
 ## Quick start: embedded Rust (probe-rs)
 
@@ -229,8 +236,9 @@ cargo build --release --target wasm32-wasip2    # what Zed builds
 Layout:
 
 ```
-extension.toml               manifest; one [debug_adapters.<name>] per adapter
+extension.toml               manifest: debug adapters, PlatformIO locator
 src/lib.rs                   routes Zed's calls to an adapter by name
+src/locator.rs               turns `pio run` tasks into debug sessions
 src/adapters/probe_rs.rs     probe-rs adapter
 src/adapters/gdb_openocd.rs  GDB (DAP mode) + OpenOCD adapter
 src/esp.rs                   Espressif chips: tool discovery, probe check

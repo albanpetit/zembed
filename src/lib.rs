@@ -6,13 +6,14 @@
 
 mod adapters;
 mod esp;
+mod locator;
 mod paths;
 mod platformio;
 
 use adapters::{gdb_openocd, probe_rs};
 use zed_extension_api::{
-    self as zed, serde_json::Value, DebugAdapterBinary, DebugConfig, DebugScenario,
-    DebugTaskDefinition, StartDebuggingRequestArgumentsRequest, Worktree,
+    self as zed, serde_json::Value, DebugAdapterBinary, DebugConfig, DebugRequest, DebugScenario,
+    DebugTaskDefinition, StartDebuggingRequestArgumentsRequest, TaskTemplate, Worktree,
 };
 
 struct Zembed;
@@ -58,6 +59,29 @@ impl zed::Extension for Zembed {
             gdb_openocd::ADAPTER_NAME => gdb_openocd::config_to_scenario(config),
             other => Err(unknown_adapter(other)),
         }
+    }
+
+    fn dap_locator_create_scenario(
+        &mut self,
+        locator_name: String,
+        build_task: TaskTemplate,
+        resolved_label: String,
+        debug_adapter_name: String,
+    ) -> Option<DebugScenario> {
+        if locator_name != locator::LOCATOR_NAME {
+            return None;
+        }
+        locator::create_scenario(build_task, resolved_label, debug_adapter_name)
+    }
+
+    fn run_dap_locator(
+        &mut self,
+        _locator_name: String,
+        _build_task: TaskTemplate,
+    ) -> Result<DebugRequest, String> {
+        // Scenarios from `dap_locator_create_scenario` are complete, so Zed
+        // never asks for this second step.
+        Err("Zembed's locator does not resolve build tasks".into())
     }
 }
 

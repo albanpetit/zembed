@@ -1,7 +1,7 @@
 id = "zembed"
 name = "Zembed"
 description = "Embedded development for Zed: debug Rust, C and C++ firmware on microcontrollers with probe-rs or GDB + OpenOCD, with PlatformIO support."
-version = "0.4.0"
+version = "0.5.0"
 schema_version = 1
 authors = ["Alban Petit"]
 repository = "https://github.com/albanpetit/zembed"
@@ -13,6 +13,10 @@ schema_path = "debug_adapter_schemas/probe-rs.json"
 
 [debug_adapters.gdb-openocd]
 schema_path = "debug_adapter_schemas/gdb-openocd.json"
+
+# Turns PlatformIO `pio run` tasks into "upload, then debug" sessions, so a
+# project needs no .zed/debug.json (see src/locator.rs).
+[debug_locators.platformio]
 
 # gdb-openocd finds GDB, OpenOCD and the board definition with small POSIX
 # shell scripts (see src/esp.rs), and checks the probe before each session.

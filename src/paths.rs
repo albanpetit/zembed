@@ -49,11 +49,17 @@ mod tests {
 
     #[test]
     fn expands_home() {
-        assert_eq!(expand_home("~/bin/gdb", Some("/home/me")), "/home/me/bin/gdb");
+        assert_eq!(
+            expand_home("~/bin/gdb", Some("/home/me")),
+            "/home/me/bin/gdb"
+        );
         assert_eq!(expand_home("~", Some("/home/me/")), "/home/me/");
         assert_eq!(expand_home("~user/gdb", Some("/home/me")), "~user/gdb");
         assert_eq!(expand_home("~/bin/gdb", None), "~/bin/gdb");
-        assert_eq!(expand_home("/usr/bin/gdb", Some("/home/me")), "/usr/bin/gdb");
+        assert_eq!(
+            expand_home("/usr/bin/gdb", Some("/home/me")),
+            "/usr/bin/gdb"
+        );
     }
 
     #[test]

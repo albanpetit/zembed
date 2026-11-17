@@ -33,7 +33,8 @@ except Exception:\\n pass\")";
 
 /// Resumes every core when GDB detaches, so the firmware is not left frozen
 /// after the session.
-const RESUME_ON_DETACH: &str = "foreach t [target names] { $t configure -event gdb-detach { resume } }";
+const RESUME_ON_DETACH: &str =
+    "foreach t [target names] { $t configure -event gdb-detach { resume } }";
 
 /// What the adapter needs from the user's machine. Implemented over Zed's
 /// worktree and `process:exec` in the extension, and faked in tests.
@@ -72,7 +73,11 @@ impl Host for WorktreeHost<'_> {
     }
 
     fn sh(&self, script: &str, args: &[String]) -> Result<ShOutput, String> {
-        let mut command = Command::new("sh").arg("-c").arg(script).arg("zembed").args(args);
+        let mut command = Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .arg("zembed")
+            .args(args);
         if let Some(home) = &self.home {
             command = command.env("HOME", home);
         }
@@ -217,19 +222,30 @@ pub fn build_session(raw: Value, root: &str, host: &dyn Host) -> Result<Session,
     let needs_chip = given_gdb.is_none()
         || (given_target.is_none() && (given_openocd.is_none() || given_args.is_none()));
     let chip = if needs_chip {
-        Some(detect_chip(string("chip")?, ini.as_deref(), pio_env.as_deref(), host)?)
+        Some(detect_chip(
+            string("chip")?,
+            ini.as_deref(),
+            pio_env.as_deref(),
+            host,
+        )?)
     } else {
         None
     };
 
-    let found = match (&chip, given_gdb.is_none() || (given_target.is_none() && given_openocd.is_none())) {
+    let found = match (
+        &chip,
+        given_gdb.is_none() || (given_target.is_none() && given_openocd.is_none()),
+    ) {
         (Some(chip), true) => Some(find_tools(chip, host)?),
         _ => None,
     };
 
     let gdb = match given_gdb {
         Some(gdb) => program_path("gdb", gdb)?,
-        None => found.as_ref().map(|(gdb, _)| gdb.clone()).ok_or("missing `gdb`")?,
+        None => found
+            .as_ref()
+            .map(|(gdb, _)| gdb.clone())
+            .ok_or("missing `gdb`")?,
     };
 
     let target = match given_target {
@@ -238,7 +254,10 @@ pub fn build_session(raw: Value, root: &str, host: &dyn Host) -> Result<Session,
         None => {
             let openocd = match given_openocd {
                 Some(openocd) => program_path("openocd", openocd)?,
-                None => found.as_ref().map(|(_, o)| o.clone()).ok_or("missing `openocd`")?,
+                None => found
+                    .as_ref()
+                    .map(|(_, o)| o.clone())
+                    .ok_or("missing `openocd`")?,
             };
             let args = match given_args {
                 Some(args) => args,
@@ -255,7 +274,12 @@ pub fn build_session(raw: Value, root: &str, host: &dyn Host) -> Result<Session,
             if flag(&config, "checkProbe", true)? {
                 check_probe(&openocd, scripts.as_deref(), &args, host)?;
             }
-            openocd_pipe(&openocd, scripts.as_deref(), &args, flag(&config, "resumeOnDisconnect", true)?)
+            openocd_pipe(
+                &openocd,
+                scripts.as_deref(),
+                &args,
+                flag(&config, "resumeOnDisconnect", true)?,
+            )
         }
     };
 
@@ -370,7 +394,9 @@ fn find_tools(chip: &esp::Chip, host: &dyn Host) -> Result<(String, String), Str
     let openocd = esp::pick_openocd(&openocds)?;
     let found = (gdb, openocd);
     FOUND_TOOLS.with(|cache| {
-        cache.borrow_mut().insert(chip.gdb_binary.clone(), found.clone());
+        cache
+            .borrow_mut()
+            .insert(chip.gdb_binary.clone(), found.clone());
     });
     Ok(found)
 }
@@ -450,7 +476,10 @@ mod tests {
 
     impl Host for Fake {
         fn read_file(&self, path: &str) -> Option<String> {
-            self.files.iter().find(|(p, _)| *p == path).map(|(_, c)| c.to_string())
+            self.files
+                .iter()
+                .find(|(p, _)| *p == path)
+                .map(|(_, c)| c.to_string())
         }
         fn which(&self, name: &str) -> Option<String> {
             (name == "gdb-multiarch").then(|| "/usr/bin/gdb-multiarch".to_string())
@@ -473,8 +502,14 @@ mod tests {
             } else {
                 panic!("unexpected script");
             };
-            self.calls.borrow_mut().push(format!("{kind} {}", args.join(" ")));
-            Ok(ShOutput { success, stdout, stderr })
+            self.calls
+                .borrow_mut()
+                .push(format!("{kind} {}", args.join(" ")));
+            Ok(ShOutput {
+                success,
+                stdout,
+                stderr,
+            })
         }
     }
 
@@ -502,8 +537,15 @@ mod tests {
         );
         let calls = host.calls.borrow();
         assert_eq!(calls[0], "board seeed_xiao_esp32s3");
-        assert_eq!(calls[1], "discover xtensa-esp-elf-gdb xtensa-esp32s3-elf-gdb");
-        assert!(calls[2].starts_with(&format!("probe {OPENOCD} -s ")), "{}", calls[2]);
+        assert_eq!(
+            calls[1],
+            "discover xtensa-esp-elf-gdb xtensa-esp32s3-elf-gdb"
+        );
+        assert!(
+            calls[2].starts_with(&format!("probe {OPENOCD} -s ")),
+            "{}",
+            calls[2]
+        );
         assert!(calls[2].ends_with("-f board/esp32s3-builtin.cfg -c init; shutdown"));
     }
 
@@ -564,7 +606,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(session.gdb, "/home/me/gdb");
-        assert_eq!(session.attach["program"], "/work/.pio/build/other/firmware.elf");
+        assert_eq!(
+            session.attach["program"],
+            "/work/.pio/build/other/firmware.elf"
+        );
         assert_eq!(
             session.attach["target"],
             "| '/opt/ocd/openocd' -s '/home/me/scripts' '-f' 'it'\\''s.cfg' \
@@ -605,6 +650,8 @@ mod tests {
     fn only_attaches() {
         assert!(request_kind(&json!({ "request": "attach" })).is_ok());
         assert!(request_kind(&json!({})).is_ok());
-        assert!(request_kind(&json!({ "request": "launch" })).unwrap_err().contains("attach"));
+        assert!(request_kind(&json!({ "request": "launch" }))
+            .unwrap_err()
+            .contains("attach"));
     }
 }
