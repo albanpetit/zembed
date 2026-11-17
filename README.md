@@ -34,7 +34,9 @@ No `.zed/debug.json` is needed: Zembed turns every `pio run` task into an
 `-e <env>` of the task picks the firmware, and tasks that never end
 (`monitor`) or do not flash (`clean`, `test`, ...) are left alone. To attach
 to the running firmware without uploading, use the **Launch** tab of
-`debugger: start`, pick the `gdb-openocd` adapter and leave the program empty.
+`debugger: start`, pick the `gdb-openocd` adapter and type `auto` as the
+program (Zed requires a value; anything that is not a file path means "find
+the firmware").
 
 Zembed reads the board from `platformio.ini`, finds GDB and OpenOCD, checks
 that the board answers, then halts the chip. Set breakpoints and continue.

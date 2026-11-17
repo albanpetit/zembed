@@ -150,7 +150,13 @@ pub fn config_to_scenario(config: DebugConfig) -> Result<DebugScenario, String> 
         zed_extension_api::DebugRequest::Attach(_) => None,
     };
     let mut scenario = json!({ "request": "attach" });
-    if let Some(program) = program.filter(|p| !p.is_empty()) {
+    // Zed's Launch tab refuses an empty program, so a placeholder such as
+    // `auto` (anything that does not look like a file path) means "detect
+    // the firmware".
+    if let Some(program) = program
+        .map(|p| p.trim().to_string())
+        .filter(|p| p.contains('/') || p.contains('\\') || p.contains('.'))
+    {
         scenario["program"] = program.into();
     }
     Ok(DebugScenario {
@@ -445,6 +451,31 @@ fn openocd_pipe(openocd: &str, scripts: Option<&str>, args: &[String], resume: b
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    fn launch_tab(program: &str) -> Value {
+        let config = DebugConfig {
+            label: "x".into(),
+            adapter: ADAPTER_NAME.into(),
+            request: zed_extension_api::DebugRequest::Launch(zed_extension_api::LaunchRequest {
+                program: program.into(),
+                cwd: None,
+                args: vec![],
+                envs: vec![],
+            }),
+            stop_on_entry: None,
+        };
+        serde_json::from_str(&config_to_scenario(config).unwrap().config).unwrap()
+    }
+
+    #[test]
+    fn launch_tab_placeholder_means_autodetect() {
+        assert_eq!(launch_tab("auto"), json!({ "request": "attach" }));
+        assert_eq!(launch_tab(" "), json!({ "request": "attach" }));
+        assert_eq!(
+            launch_tab(" build/app.elf "),
+            json!({ "request": "attach", "program": "build/app.elf" })
+        );
+    }
 
     const GDB: &str = "/ard/xtensa-esp-elf-gdb/17.1/bin/xtensa-esp32s3-elf-gdb";
     const OPENOCD: &str = "/ard/openocd-esp32/v0.12.0-esp32-20260424/bin/openocd";
