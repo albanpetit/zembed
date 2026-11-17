@@ -205,12 +205,23 @@ pub fn pick_openocd(found: &[FoundOpenocd]) -> Result<String, String> {
         })
 }
 
-/// Runs `$@` with a time limit when `timeout` exists (it does not on stock
-/// macOS).
-pub const PROBE_CHECK_SCRIPT: &str = r#"if command -v timeout >/dev/null 2>&1; then exec timeout 20 "$@"; else exec "$@"; fi"#;
+/// Refuses to touch the probe while another debugger holds it: OpenOCD
+/// would then write to the USB device in the middle of that session. Else
+/// runs `$@`, with a time limit when `timeout` exists (not on stock macOS).
+/// The brackets keep the patterns from matching this script's own command
+/// line.
+pub const PROBE_CHECK_SCRIPT: &str = r#"if command -v pgrep >/dev/null 2>&1; then
+  busy=$(pgrep -f 'openocd.*gdb_port [p]ipe|probe-rs [d]ap-server|probe-rs (run|attach|[g]db)' | tr '\n' ' ')
+  if [ -n "$busy" ]; then
+    echo "Error: zembed: the probe is already used by another debugger (process $busy)" >&2
+    exit 3
+  fi
+fi
+if command -v timeout >/dev/null 2>&1; then exec timeout 20 "$@"; else exec "$@"; fi"#;
 
 /// Messages of OpenOCD that mean the probe or chip cannot be reached.
 const PROBE_FAILURES: &[&str] = &[
+    "already used by another debugger",
     "could not find or open device",
     "Examination failed",
     "LIBUSB_ERROR",
@@ -313,5 +324,7 @@ mod tests {
         let examination = "Error: [esp32s3.cpu0] Examination failed\n";
         assert!(probe_check_error(true, examination).is_some());
         assert!(probe_check_error(false, "Error: something else\n").unwrap().contains("something else"));
+        let busy = "Error: zembed: the probe is already used by another debugger (process 42 )\n";
+        assert!(probe_check_error(false, busy).unwrap().contains("process 42"));
     }
 }
