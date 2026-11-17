@@ -86,11 +86,12 @@ For the `probe-rs` adapter, also install
 
 Zed does not let an extension write files in your project, so Zembed comes
 with a small command that writes `.zed/debug.json`, `.zed/tasks.json` and
-`.zed/settings.json` for you. It needs Python 3, which PlatformIO already
-brings. Install it once:
+`.zed/settings.json` for you. It shares its chip and tool detection with the
+extension, so both always agree. Install it once, from the cloned repository
+(Rust is already needed for the dev extension):
 
 ```sh
-ln -s "$PWD/cli/zembed" ~/.local/bin/zembed   # from the cloned repository
+cargo install --path cli    # puts `zembed` in ~/.cargo/bin
 ```
 
 Then, in a firmware project (PlatformIO or embedded Rust):
@@ -267,7 +268,7 @@ entry.
 rustup target add wasm32-wasip2
 cargo test                                      # configuration logic
 cargo build --release --target wasm32-wasip2    # what Zed builds
-python3 -m unittest discover -s cli             # the zembed command
+cargo test --manifest-path cli/Cargo.toml       # the zembed command
 ```
 
 Layout:
@@ -283,7 +284,8 @@ src/paths.rs                 path helpers shared by the adapters
 src/platformio.rs            platformio.ini helpers (environment, firmware path)
 debug_adapter_schemas/       JSON schema per adapter (completion in debug.json)
 templates/                   files to copy into a project's .zed/ folder
-cli/zembed                   `zembed init` / `zembed doctor` (Python 3, no dependencies)
+cli/                         `zembed init` / `zembed doctor` (separate crate; reuses
+                             src/esp.rs and src/platformio.rs)
 ```
 
 To add an adapter, create a module in `src/adapters/`, declare it in
