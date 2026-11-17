@@ -1,0 +1,15 @@
+[package]
+name = "zembed-cli"
+version = "0.4.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "zembed init / zembed doctor: set up Zed for an embedded firmware project"
+
+[[bin]]
+name = "zembed"
+path = "src/main.rs"
+
+[dependencies]
+# preserve_order: keys are written in the order the configuration is built.
+serde_json = { version = "1", features = ["preserve_order"] }
