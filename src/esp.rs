@@ -211,7 +211,7 @@ pub fn pick_openocd(found: &[FoundOpenocd]) -> Result<String, String> {
 /// The brackets keep the patterns from matching this script's own command
 /// line.
 pub const PROBE_CHECK_SCRIPT: &str = r#"if command -v pgrep >/dev/null 2>&1; then
-  busy=$(pgrep -f 'openocd.*gdb_port [p]ipe|probe-rs [d]ap-server|probe-rs (run|attach|[g]db)' | tr '\n' ' ')
+  busy=$(pgrep -f 'openocd.*gdb_port [p]ipe|probe-rs [d]ap-server|probe-rs (run|attach|[g]db)' | tr '\n' ' ' | sed 's/ $//')
   if [ -n "$busy" ]; then
     echo "Error: zembed: the probe is already used by another debugger (process $busy)" >&2
     exit 3
@@ -324,7 +324,7 @@ mod tests {
         let examination = "Error: [esp32s3.cpu0] Examination failed\n";
         assert!(probe_check_error(true, examination).is_some());
         assert!(probe_check_error(false, "Error: something else\n").unwrap().contains("something else"));
-        let busy = "Error: zembed: the probe is already used by another debugger (process 42 )\n";
+        let busy = "Error: zembed: the probe is already used by another debugger (process 42)\n";
         assert!(probe_check_error(false, busy).unwrap().contains("process 42"));
     }
 }
