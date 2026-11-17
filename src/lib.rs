@@ -5,6 +5,7 @@
 //! `extension.toml`.
 
 mod adapters;
+mod esp;
 mod paths;
 mod platformio;
 

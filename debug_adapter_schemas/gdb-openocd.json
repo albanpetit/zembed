@@ -2,25 +2,33 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GDB + OpenOCD debug configuration (Zembed)",
   "type": "object",
-  "required": ["request", "gdb"],
+  "required": [],
   "properties": {
     "request": {
       "type": "string",
-      "enum": ["attach"],
-      "description": "`attach` connects to the firmware already on the chip and halts it. Upload first, for example with a `build` task such as `pio run -t upload`."
+      "enum": [
+        "attach"
+      ],
+      "description": "Optional, always `attach`: connects to the firmware already on the chip and halts it. Upload first, for example with a `build` task such as `pio run -t upload`."
+    },
+    "chip": {
+      "type": "string",
+      "description": "Espressif chip, e.g. `esp32s3` or `esp32c3`. Optional in a PlatformIO project: detected from the `board` of the environment."
     },
     "gdb": {
       "type": "string",
-      "description": "GDB to use: a path (`~` is expanded) or a name found on your PATH. It must be GDB 14 or newer, built for your chip's architecture and with Python support, because Zembed uses GDB's own DAP mode (`gdb -i=dap`)."
+      "description": "GDB to use: a path (`~` is expanded) or a name found on your PATH. Optional for Espressif chips: Zembed looks in the Arduino IDE, ESP-IDF and PlatformIO tools and on your PATH, and picks the newest GDB 14+ with Python support."
     },
     "openocd": {
       "type": "string",
-      "description": "OpenOCD to start for the session: a path (`~` is expanded) or a name found on your PATH. GDB spawns it in pipe mode and it stops with the session. Requires `openocdArgs`. Omit it and set `target` to use a GDB server you start yourself."
+      "description": "OpenOCD to start for the session: a path or a name found on your PATH. Optional for Espressif chips: Zembed picks the newest Espressif OpenOCD (openocd-esp32) it finds. GDB spawns it in pipe mode and it stops with the session."
     },
     "openocdArgs": {
       "type": "array",
-      "items": { "type": "string" },
-      "description": "OpenOCD arguments selecting the probe and the chip, e.g. [\"-f\", \"board/esp32s3-builtin.cfg\"] or [\"-f\", \"interface/stlink.cfg\", \"-f\", \"target/stm32f4x.cfg\"]."
+      "items": {
+        "type": "string"
+      },
+      "description": "OpenOCD arguments selecting the probe and the chip. Optional for Espressif chips with built-in USB-JTAG (ESP32-S3, C3, C5, C6, H2, P4): defaults to [\"-f\", \"board/<chip>-builtin.cfg\"]. Otherwise e.g. [\"-f\", \"interface/stlink.cfg\", \"-f\", \"target/stm32f4x.cfg\"]."
     },
     "openocdScripts": {
       "type": "string",
@@ -46,6 +54,11 @@
     "cwd": {
       "type": "string",
       "description": "Working directory used to resolve a relative `program`. Defaults to the worktree root."
+    },
+    "checkProbe": {
+      "type": "boolean",
+      "default": true,
+      "description": "Start OpenOCD once before the session to check that the probe and chip answer, and report a clear error if not (board unplugged, probe busy). Adds a second or two."
     }
   }
 }

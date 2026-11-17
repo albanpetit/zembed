@@ -2,54 +2,54 @@
 
 Embedded development for the [Zed](https://zed.dev) editor.
 
-Zembed is a Zed extension that lets you debug microcontrollers from Zed's
-built-in debugger. It provides two debug adapters:
+Zembed lets you debug microcontrollers from Zed's built-in debugger:
+breakpoints, stepping, call stack, variables. It provides two debug adapters:
 
-- **`probe-rs`**, for **embedded Rust**, through [probe-rs](https://probe.rs).
 - **`gdb-openocd`**, for **C and C++** firmware (Arduino, ESP-IDF, ...),
-  through GDB and OpenOCD.
+  through GDB and OpenOCD. With **PlatformIO** and an **ESP32**, it needs no
+  configuration at all.
+- **`probe-rs`**, for **embedded Rust**, through [probe-rs](https://probe.rs).
 
-Both understand **PlatformIO** projects.
+> **Status: prototype.** Tested on one board so far (Seeed XIAO ESP32S3, Linux).
+> See [Known limits](#known-limits).
 
-> **Status: prototype.** The extension compiles, its configuration logic is
-> unit-tested, and it has been tried on a single board so far. See
-> [Known limits](#known-limits).
+## Quick start: ESP32 with PlatformIO
 
-## What you get
+For ESP32-S3, C3, C5, C6, H2 and P4 boards, which debug over the same USB
+cable you upload with.
 
-- A `probe-rs` debug adapter for Zed: breakpoints, stepping, call stack,
-  variables, flashing before the session, attaching to a running target.
-- A short configuration format for `.zed/debug.json`, with completion and
-  validation, on top of the native probe-rs options.
-- Chip auto-detection from your project (`Embed.toml`, or the
-  `probe-rs run --chip <CHIP>` runner in `.cargo/config.toml`).
-- A `gdb-openocd` debug adapter that runs GDB in its DAP mode and lets it
-  start OpenOCD for the duration of the session.
-- PlatformIO projects: the firmware to debug is found from `platformio.ini`.
-- Ready-to-copy [templates](templates) for debug sessions and tasks, for
-  [embedded Rust](templates/rust-embedded) (build / flash / RTT) and
-  [PlatformIO](templates/platformio) (build / upload / monitor / test).
+1. **Install the tools once.** In the Arduino IDE, install the "esp32" board
+   package (Boards Manager, version 3.x). It ships the GDB and OpenOCD Zembed
+   needs. ESP-IDF or a recent PlatformIO `espressif32` platform work too.
+2. **Add two files to your project.** Copy
+   [`templates/platformio/debug.json`](templates/platformio/debug.json)
+   to `.zed/debug.json`, and add `build_type = debug` to your environment in
+   `platformio.ini` so the firmware is not optimized.
+3. **Debug.** Run `debugger: start` (F4) and pick **Upload and debug**.
 
-## Requirements
+The whole `.zed/debug.json` is:
 
-- A recent Zed, with the built-in debugger and debug adapter extensions.
-- For the `probe-rs` adapter: `probe-rs` on your `PATH`
-  ([installation](https://probe.rs/docs/getting-started/installation/)) and a
-  probe it supports (ST-Link, J-Link, CMSIS-DAP, ...).
-- For the `gdb-openocd` adapter: GDB 14 or newer with Python support, built
-  for your chip, and an OpenOCD that knows your chip and probe.
-- Rust with the `wasm32-wasip2` target, needed by Zed to build the extension
-  while it is installed as a dev extension: `rustup target add wasm32-wasip2`.
+```json
+[
+  {
+    "label": "Upload and debug",
+    "adapter": "gdb-openocd",
+    "build": { "command": "pio", "args": ["run", "-t", "upload"] }
+  },
+  { "label": "Attach to running firmware", "adapter": "gdb-openocd" }
+]
+```
 
-## Install (dev extension)
+Zembed reads the board from `platformio.ini`, finds GDB and OpenOCD, checks
+that the board answers, then halts the chip. Set breakpoints and continue.
+Both cores are debugged, and FreeRTOS tasks show up as threads. When the
+session ends, the firmware keeps running.
 
-Zembed is not published in the Zed extension registry yet.
+For the build, upload and serial monitor tasks, copy
+[`templates/platformio/tasks.json`](templates/platformio/tasks.json) to
+`.zed/tasks.json` and run them with `task: spawn`.
 
-1. Clone this repository.
-2. In Zed, run `zed: install dev extension` from the command palette and pick
-   the cloned folder.
-
-## Quick start: embedded Rust
+## Quick start: embedded Rust (probe-rs)
 
 1. Copy [`templates/rust-embedded/debug.json`](templates/rust-embedded/debug.json)
    to `.zed/debug.json` in your firmware project.
@@ -61,67 +61,83 @@ For build / flash / RTT tasks, copy
 [`templates/rust-embedded/tasks.json`](templates/rust-embedded/tasks.json) to
 `.zed/tasks.json` and run them with `task: spawn`.
 
-## Quick start: PlatformIO
+## Install
 
-Tasks work with any board PlatformIO supports:
+Zembed is not in the Zed extension registry yet, so install it as a dev
+extension. You need Rust with the WebAssembly target:
+`rustup target add wasm32-wasip2`.
 
-1. Copy [`templates/platformio/tasks.json`](templates/platformio/tasks.json) to
-   `.zed/tasks.json` in your PlatformIO project.
-2. Run `task: spawn` and pick **PlatformIO: build**, **upload**, **monitor**...
+1. Clone this repository.
+2. In Zed, run `zed: install dev extension` and pick the cloned folder.
 
-Run **PlatformIO: generate compile_commands.json** once to give clangd the
-project's include paths and defines.
+For the `probe-rs` adapter, also install
+[probe-rs](https://probe.rs/docs/getting-started/installation/).
 
-### Debugging C and C++ firmware (Arduino, ESP-IDF)
+## Troubleshooting
 
-Use the `gdb-openocd` adapter. It needs:
+- **"OpenOCD could not reach the chip"**: the board is unplugged, or another
+  program holds the probe: a debug session still open, a `probe-rs` or
+  `openocd` process left behind, the Arduino IDE debugger. Stop it, for example
+  with `pkill -f "probe-rs dap-server"; pkill openocd`, and try again.
+- **"no usable ... gdb found"**: the message lists the GDBs found and why each
+  was rejected. Zembed needs GDB 14 or newer with Python, which older
+  PlatformIO packages do not have. Install the Arduino "esp32" package 3.x, or
+  set `gdb` to a suitable GDB.
+- **Tasks open an empty terminal, or `pio` is not found**: Zed runs tasks with
+  `bash -i -c "<command>"`. If your `~/.bashrc` ends with `exec zsh` (or
+  another shell), the command never runs. Make it conditional:
+  `[ -z "$BASH_EXECUTION_STRING" ] && exec zsh`, then restart Zed.
+- **A breakpoint is never hit**: build with `build_type = debug`, and make sure
+  the firmware on the chip is the one you built (use **Upload and debug**).
 
-- A **GDB 14 or newer**, built for your chip and with Python support.
-- An **OpenOCD** that knows your chip and probe.
+## Configuration
 
-The tools PlatformIO installs are not always suitable: on the machine used for
-testing, its ESP32 GDB was version 12 (no DAP mode) and its OpenOCD was a
-generic build without ESP32 support. The "esp32" board package of the Arduino
-IDE ships both in recent versions, under
-`~/.arduino15/packages/esp32/tools/` (`~/Library/Arduino15/...` on macOS).
+### `gdb-openocd`
 
-1. Copy
-   [`templates/platformio/debug.esp32-gdb.json`](templates/platformio/debug.esp32-gdb.json)
-   to `.zed/debug.json`.
-2. Adapt the `gdb` and `openocd` paths to the versions you have, and
-   `openocdArgs` to your chip.
-3. Add `build_type = debug` to your environment in `platformio.ini`, so the
-   firmware is not optimized.
-4. Run `debugger: start` (F4) and pick **ESP32-S3: upload and debug (GDB)**.
+Every key is optional for an ESP32 with built-in USB-JTAG in a PlatformIO
+project. Set them to override what Zembed detects, or to debug other chips.
 
-The session uploads with PlatformIO, attaches, and halts the chip. Set your
-breakpoints, then continue. On a dual-core ESP32 both cores are debugged, and
-FreeRTOS tasks appear as threads.
+| Key | Description |
+| --- | --- |
+| `chip` | Espressif chip, e.g. `esp32s3`. Detected from the PlatformIO `board`. |
+| `program` | Firmware ELF, absolute or relative to `cwd`. Defaults to `.pio/build/<env>/firmware.elf`. |
+| `pioEnv` | PlatformIO environment. Defaults to `default_envs`, otherwise the first `[env:...]`. |
+| `gdb` | GDB 14+ with Python: a path (`~` is expanded) or a name on your `PATH`. |
+| `openocd` | OpenOCD to start for the session: a path or a name on your `PATH`. |
+| `openocdArgs` | OpenOCD arguments selecting the probe and chip. Defaults to `["-f", "board/<chip>-builtin.cfg"]`. |
+| `openocdScripts` | OpenOCD scripts directory. Defaults to `share/openocd/scripts` next to OpenOCD's `bin`. |
+| `target` | A GDB server you started yourself, e.g. `localhost:3333`, instead of `openocd`. |
+| `checkProbe` | Check that the probe and chip answer before the session. Defaults to `true`. |
+| `resumeOnDisconnect` | Resume the firmware when the session ends. Defaults to `true`. |
+| `cwd` | Base for a relative `program`. Defaults to the project root. |
 
-If the session starts but shows no thread and never stops, OpenOCD failed to
-reach the chip (board unplugged, probe used by another program): GDB's DAP
-mode does not report that error. Run the OpenOCD command by hand to see it.
+Where Zembed looks for the tools, newest first: the Arduino IDE
+(`~/.arduino15/packages/esp32/tools`, `~/Library/Arduino15/...` on macOS),
+ESP-IDF (`~/.espressif/tools`), PlatformIO (`~/.platformio/packages`), and your
+`PATH`. The board is read from the project's `boards/` folder or PlatformIO's
+board definitions, else guessed from its name.
 
-### Debugging through probe-rs
+For a chip without built-in USB-JTAG (ESP32, ESP32-S2, or any non-Espressif
+chip), name the probe:
 
-The `probe-rs` adapter also works on PlatformIO firmware, but **it cannot set
-line breakpoints in C++ files** (see [Known limits](#known-limits)), so it is
-mostly useful for C or Rust code. It needs `probe-rs` installed and a probe it
-supports (ST-Link, J-Link, CMSIS-DAP, or the built-in USB-JTAG of
-ESP32-C3/C6/S3).
+```json
+{
+  "label": "Debug (ESP-Prog)",
+  "adapter": "gdb-openocd",
+  "openocdArgs": ["-f", "board/esp32-wrover-kit-3.3v.cfg"]
+}
+```
 
-1. Copy [`templates/platformio/debug.json`](templates/platformio/debug.json) to
-   `.zed/debug.json`.
-2. Set `chip` to your microcontroller as probe-rs names it. PlatformIO board
-   names differ: `nucleo_f411re` is `STM32F411RETx`. Search with
-   `probe-rs chip list | grep -i f411`.
-3. Run `debugger: start` (F4) and pick **PlatformIO: build, flash and debug**.
+How it works: Zembed starts `gdb -i=dap`, GDB's own Debug Adapter Protocol
+mode, and GDB runs `target remote | openocd ... -c "gdb_port pipe"`, so
+OpenOCD starts and stops with the session. Two workarounds are applied:
 
-Both adapters debug `.pio/build/<environment>/firmware.elf`. The environment
-is `pioEnv` if you set it, otherwise `default_envs`, otherwise the first
-`[env:...]` of `platformio.ini`.
+- GDB's DAP mode (seen in 17.1) marks the target as running whenever a new
+  thread appears, which breaks every request once OpenOCD lists the RTOS
+  tasks. Zembed patches that handler at startup.
+- OpenOCD leaves the chip halted when GDB detaches. Zembed resumes every core.
 
-## Configuration: `probe-rs`
+### `probe-rs`
 
 A minimal `.zed/debug.json` entry:
 
@@ -167,95 +183,40 @@ Zembed starts `probe-rs dap-server --port <free port> --single-session` and Zed 
 over TCP. To pin the port, add `"tcp_connection": { "port": 50000 }` to the
 entry.
 
-## Configuration: `gdb-openocd`
-
-```json
-[
-  {
-    "label": "Debug firmware (GDB)",
-    "adapter": "gdb-openocd",
-    "request": "attach",
-    "gdb": "~/.arduino15/packages/esp32/tools/xtensa-esp-elf-gdb/17.1_20260402/bin/xtensa-esp32s3-elf-gdb",
-    "openocd": "~/.arduino15/packages/esp32/tools/openocd-esp32/v0.12.0-esp32-20260424/bin/openocd",
-    "openocdArgs": ["-f", "board/esp32s3-builtin.cfg"]
-  }
-]
-```
-
-| Key | Description |
-| --- | --- |
-| `request` | Only `attach`: connects to the firmware on the chip and halts it. Upload first, for example with a `build` task. |
-| `gdb` | GDB 14+ with Python, for your chip: a path (`~` is expanded) or a name on your `PATH`. |
-| `openocd` | OpenOCD to start for the session: a path or a name on your `PATH`. Needs `openocdArgs`. |
-| `openocdArgs` | OpenOCD arguments selecting the probe and chip, e.g. `["-f", "board/esp32s3-builtin.cfg"]`. |
-| `openocdScripts` | OpenOCD scripts directory. Defaults to `share/openocd/scripts` next to OpenOCD's `bin`. |
-| `resumeOnDisconnect` | Resume the firmware when the session ends. Defaults to `true`. |
-| `target` | A GDB server that is already running, e.g. `localhost:3333`, instead of `openocd`. |
-| `program` | Firmware ELF, absolute or relative to `cwd`. Optional in a PlatformIO project. |
-| `pioEnv` | PlatformIO environment to debug, when `program` is not set. |
-| `cwd` | Base for a relative `program`. Defaults to the worktree root. |
-
-Zembed starts `gdb -q -i=dap` and Zed talks to it on stdin/stdout. GDB then
-runs `target remote | openocd ... -c "gdb_port pipe"`, so OpenOCD is a child of
-GDB and stops with the session. Two workarounds are applied for you:
-
-- GDB's DAP mode (seen in 17.1) marks the target as running whenever a new
-  thread appears, which breaks every request once OpenOCD lists the RTOS
-  tasks. Zembed patches that handler at startup with a `-iex` Python command.
-- OpenOCD leaves the chip halted when GDB detaches. Zembed registers a
-  `gdb-detach` handler that resumes every core.
-
 ## Known limits
 
-- **Lightly tested on hardware.** Everything was tried on one board, a Seeed
-  XIAO ESP32S3 over its built-in USB-JTAG, on Linux, with probe-rs 0.32,
-  Espressif GDB 17.1 and Espressif OpenOCD 0.12. Please open an issue with
-  your chip, probe and tool versions if a session fails to start.
-- **`gdb-openocd`: not validated end to end yet.** On the board, GDB's DAP
-  mode with Espressif's OpenOCD gave working C++ line breakpoints, call
-  stacks, variables and repeated continues, with OpenOCD started separately.
-  Letting GDB start OpenOCD through a pipe, which is what the adapter does,
-  has not been run on the board yet, nor has a full session from Zed.
-- **`gdb-openocd`: GDB and OpenOCD paths are set by hand.** A Zed extension
-  cannot search your disk for installed toolchains.
+- **Tested on one board.** A Seeed XIAO ESP32S3 over its built-in USB-JTAG,
+  on Linux, with Espressif GDB 17.1, Espressif OpenOCD 0.12 and probe-rs 0.32.
+  Please open an issue with your board and tool versions if something fails.
 - **`gdb-openocd`: attach only, Linux and macOS only.** There is no
-  reset-and-halt at startup yet, and the OpenOCD command is quoted for a POSIX
-  shell, so Windows is not supported.
-- **No RTT output in the debug session.** probe-rs sends RTT data through
-  custom DAP events designed for its VS Code extension, and Zed ignores them.
-  Use the `Zembed: flash and run (RTT logs)` or `Zembed: attach RTT logs`
-  tasks to read RTT / defmt logs in a terminal. A probe is used by one process
-  at a time, so this cannot run alongside a debug session.
-- **PlatformIO debugging does not use `pio debug`'s own debugger.**
-  PlatformIO drives GDB through GDB/MI and writes its own messages into that
-  stream, so it cannot be plugged into Zed as a debug adapter. Zembed debugs
-  the ELF PlatformIO builds with its own adapters instead, which means
-  `debug_tool` and other `debug_*` options of `platformio.ini` are ignored.
-- **`chip` is not derived from the PlatformIO `board`.** It has to be set.
-- **`probe-rs`: no line breakpoints in C++ code** (tested with probe-rs 0.32 on an ESP32-S3
-  running Arduino). probe-rs only accepts a source breakpoint after the
-  function prologue, and it detects the prologue of GCC-compiled code for C
-  only, so every line of a `.cpp` file is refused with "No valid breakpoint
-  information found". Breakpoints in `.c` files work. Use the `gdb-openocd`
-  adapter for Arduino and other C++ firmware.
-- **`probe-rs`, dual-core ESP32: one core per session.** probe-rs debugs a single core,
-  core 0 by default, while Arduino runs `setup()` and `loop()` on core 1. Add
+  reset-and-halt at startup yet, and the tool discovery and OpenOCD command
+  use a POSIX shell, so Windows is not supported.
+- **Tools are not downloaded.** GDB, OpenOCD and probe-rs must be installed.
+- **`probe-rs`: no line breakpoints in C++ code** (probe-rs 0.32). probe-rs
+  only accepts a source breakpoint after the function prologue, and it detects
+  the prologue of GCC-compiled code for C only, so every line of a `.cpp` file
+  is refused with "No valid breakpoint information found". Use `gdb-openocd`
+  for Arduino and other C++ firmware.
+- **`probe-rs`, dual-core ESP32: one core per session**, core 0 by default,
+  while Arduino runs `loop()` on core 1. Add
   `"coreConfigs": [{ "coreIndex": 1 }]` to follow core 1.
+- **No RTT output in the `probe-rs` session.** probe-rs sends RTT data through
+  custom DAP events that Zed ignores. Use the RTT tasks of the Rust template.
 - **No peripheral (SVD) view.** Zed extensions cannot add custom panels.
-  `svdFile` is still passed to probe-rs, which exposes peripheral registers as
-  a variable scope when the client displays it.
 - **Tasks are templates.** Zed only lets an extension ship tasks for a language
-  it defines, so Zembed's tasks have to be copied into the project.
-- **probe-rs is not downloaded automatically.** It must be installed.
+  it defines, so they have to be copied into the project.
+- **PlatformIO's own debugger (`pio debug`) is not used.** It drives GDB
+  through GDB/MI and writes its own messages into that stream, so it cannot be
+  plugged into Zed. `debug_tool` and other `debug_*` options of
+  `platformio.ini` are ignored.
 
 ## Roadmap
 
-- Validate on real boards (STM32, nRF52, RP2040, ESP32-C3).
-- Debug locator: turn `cargo run` / `cargo build` tasks into debug sessions
-  without writing `program` by hand.
+- Publish to the Zed extension registry, so no Rust toolchain is needed.
+- Download GDB and OpenOCD automatically when they are missing.
+- More boards: ESP32-C3/C6, STM32, nRF52, RP2040.
+- `gdb-openocd`: launch with reset and halt, Windows.
 - RTT inside the debug console.
-- `gdb-openocd`: launch with reset and halt, Windows, STM32 and other chips.
-- PlatformIO: derive `chip` and the OpenOCD configuration from the board.
 
 ## Development
 
@@ -272,6 +233,7 @@ extension.toml               manifest; one [debug_adapters.<name>] per adapter
 src/lib.rs                   routes Zed's calls to an adapter by name
 src/adapters/probe_rs.rs     probe-rs adapter
 src/adapters/gdb_openocd.rs  GDB (DAP mode) + OpenOCD adapter
+src/esp.rs                   Espressif chips: tool discovery, probe check
 src/paths.rs                 path helpers shared by the adapters
 src/platformio.rs            platformio.ini helpers (environment, firmware path)
 debug_adapter_schemas/       JSON schema per adapter (completion in debug.json)
