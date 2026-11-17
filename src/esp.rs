@@ -26,7 +26,9 @@ const KNOWN: &[&str] = &[
 ];
 
 /// Chips whose USB port doubles as a JTAG probe.
-const WITH_USB_JTAG: &[&str] = &["esp32s3", "esp32c3", "esp32c5", "esp32c6", "esp32h2", "esp32p4"];
+const WITH_USB_JTAG: &[&str] = &[
+    "esp32s3", "esp32c3", "esp32c5", "esp32c6", "esp32h2", "esp32p4",
+];
 
 /// Builds the chip description from a name such as `esp32s3`, `ESP32-S3` or
 /// `esp32_s3`.
@@ -36,7 +38,11 @@ pub fn chip(name: &str) -> Option<Chip> {
     let xtensa = matches!(*name, "esp32" | "esp32s2" | "esp32s3");
     Some(Chip {
         name: name.to_string(),
-        gdb_package: if xtensa { "xtensa-esp-elf-gdb" } else { "riscv32-esp-elf-gdb" },
+        gdb_package: if xtensa {
+            "xtensa-esp-elf-gdb"
+        } else {
+            "riscv32-esp-elf-gdb"
+        },
         gdb_binary: if xtensa {
             format!("xtensa-{name}-elf-gdb")
         } else {
@@ -153,11 +159,12 @@ pub fn pick_gdb(found: &[FoundGdb], binary: &str) -> Result<String, String> {
     if let Some(gdb) = usable {
         return Ok(gdb.path.clone());
     }
-    let mut message = format!(
-        "no usable `{binary}` found. Zembed needs GDB 14 or newer with Python support. "
-    );
+    let mut message =
+        format!("no usable `{binary}` found. Zembed needs GDB 14 or newer with Python support. ");
     if found.is_empty() {
-        message.push_str("None was found in the Arduino IDE, ESP-IDF or PlatformIO tools, nor on your PATH. ");
+        message.push_str(
+            "None was found in the Arduino IDE, ESP-IDF or PlatformIO tools, nor on your PATH. ",
+        );
     } else {
         message.push_str("Found, but not usable: ");
         let rejected: Vec<String> = found
@@ -248,7 +255,13 @@ pub fn probe_check_error(success: bool, log: &str) -> Option<String> {
     let detail = match (failed_line, errors.last()) {
         (Some(line), _) => line.trim().to_string(),
         (None, Some(line)) => line.trim().to_string(),
-        (None, None) => log.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string(),
+        (None, None) => log
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     };
     Some(format!(
         "OpenOCD could not reach the chip: {detail}\nIs the board plugged in? Is another \
@@ -266,24 +279,42 @@ mod tests {
         let s3 = chip("ESP32-S3").unwrap();
         assert_eq!(s3.gdb_binary, "xtensa-esp32s3-elf-gdb");
         assert_eq!(s3.gdb_package, "xtensa-esp-elf-gdb");
-        assert_eq!(s3.builtin_jtag_config.as_deref(), Some("board/esp32s3-builtin.cfg"));
+        assert_eq!(
+            s3.builtin_jtag_config.as_deref(),
+            Some("board/esp32s3-builtin.cfg")
+        );
         let c3 = chip("esp32c3").unwrap();
         assert_eq!(c3.gdb_binary, "riscv32-esp-elf-gdb");
-        assert_eq!(c3.builtin_jtag_config.as_deref(), Some("board/esp32c3-builtin.cfg"));
+        assert_eq!(
+            c3.builtin_jtag_config.as_deref(),
+            Some("board/esp32c3-builtin.cfg")
+        );
         assert_eq!(chip("esp32").unwrap().builtin_jtag_config, None);
         assert_eq!(chip("stm32f411"), None);
     }
 
     #[test]
     fn guesses_chip_from_board() {
-        assert_eq!(chip_from_board_id("seeed_xiao_esp32s3").unwrap().name, "esp32s3");
-        assert_eq!(chip_from_board_id("esp32-c3-devkitm-1").unwrap().name, "esp32c3");
-        assert_eq!(chip_from_board_id("esp32-c6-devkitc-1").unwrap().name, "esp32c6");
+        assert_eq!(
+            chip_from_board_id("seeed_xiao_esp32s3").unwrap().name,
+            "esp32s3"
+        );
+        assert_eq!(
+            chip_from_board_id("esp32-c3-devkitm-1").unwrap().name,
+            "esp32c3"
+        );
+        assert_eq!(
+            chip_from_board_id("esp32-c6-devkitc-1").unwrap().name,
+            "esp32c6"
+        );
         assert_eq!(chip_from_board_id("esp32dev").unwrap().name, "esp32");
         assert_eq!(chip_from_board_id("nucleo_f411re"), None);
         let json = r#"{"build": {"mcu": "esp32s3", "f_cpu": "240000000L"}, "name": "XIAO"}"#;
         assert_eq!(chip_from_board_json(json).unwrap().name, "esp32s3");
-        assert_eq!(chip_from_board_json(r#"{"build": {"mcu": "stm32f411ret6"}}"#), None);
+        assert_eq!(
+            chip_from_board_json(r#"{"build": {"mcu": "stm32f411ret6"}}"#),
+            None
+        );
     }
 
     #[test]
@@ -297,7 +328,10 @@ mod tests {
         let (gdbs, openocds) = parse_discovery(output);
         assert_eq!(gdbs[0].version, Some((12, 1)));
         assert!(!gdbs[0].python);
-        assert_eq!(pick_gdb(&gdbs, "x").unwrap(), "/ard/17/xtensa-esp32s3-elf-gdb");
+        assert_eq!(
+            pick_gdb(&gdbs, "x").unwrap(),
+            "/ard/17/xtensa-esp32s3-elf-gdb"
+        );
         assert_eq!(pick_openocd(&openocds).unwrap(), "/ard/b/openocd");
     }
 
@@ -318,13 +352,22 @@ mod tests {
 
     #[test]
     fn reads_probe_check() {
-        assert_eq!(probe_check_error(true, "Info : [esp32s3.cpu0] Examination succeed\n"), None);
+        assert_eq!(
+            probe_check_error(true, "Info : [esp32s3.cpu0] Examination succeed\n"),
+            None
+        );
         let busy = "Info : esp_usb_jtag: serial (1C:DB)\nError: esp_usb_jtag: could not find or open device!\n";
-        assert!(probe_check_error(false, busy).unwrap().contains("could not find or open device"));
+        assert!(probe_check_error(false, busy)
+            .unwrap()
+            .contains("could not find or open device"));
         let examination = "Error: [esp32s3.cpu0] Examination failed\n";
         assert!(probe_check_error(true, examination).is_some());
-        assert!(probe_check_error(false, "Error: something else\n").unwrap().contains("something else"));
+        assert!(probe_check_error(false, "Error: something else\n")
+            .unwrap()
+            .contains("something else"));
         let busy = "Error: zembed: the probe is already used by another debugger (process 42)\n";
-        assert!(probe_check_error(false, busy).unwrap().contains("process 42"));
+        assert!(probe_check_error(false, busy)
+            .unwrap()
+            .contains("process 42"));
     }
 }

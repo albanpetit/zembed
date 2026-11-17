@@ -12,8 +12,8 @@ use zed_extension_api::{
     resolve_tcp_template,
     serde_json::{self, json, Map, Value},
     DebugAdapterBinary, DebugConfig, DebugRequest, DebugScenario, DebugTaskDefinition,
-    StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest,
-    TcpArgumentsTemplate, Worktree,
+    StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest, TcpArgumentsTemplate,
+    Worktree,
 };
 
 pub const ADAPTER_NAME: &str = "probe-rs";
@@ -48,8 +48,7 @@ pub fn get_dap_binary(
         .map_err(|e| format!("invalid probe-rs debug configuration: {e}"))?;
     let request = request_kind(&raw)?;
 
-    let configuration =
-        normalize_config(raw, &root, |file| worktree.read_text_file(file).ok())?;
+    let configuration = normalize_config(raw, &root, |file| worktree.read_text_file(file).ok())?;
 
     // probe-rs speaks DAP over TCP; let Zed pick a free port unless the user
     // pinned one with `tcp_connection` in debug.json.
@@ -160,7 +159,11 @@ pub fn normalize_config(
     let mut shortcuts = Map::new();
     for key in SHORTCUT_KEYS {
         if let Some(value) = config.remove(*key) {
-            let key = if *key == "program" { "programBinary" } else { key };
+            let key = if *key == "program" {
+                "programBinary"
+            } else {
+                key
+            };
             shortcuts.insert(key.to_string(), value);
         }
     }
@@ -251,13 +254,17 @@ mod tests {
 
     #[test]
     fn detects_chip() {
-        let cargo = "[target.thumbv7em-none-eabihf]\nrunner = \"probe-rs run --chip STM32F411CEUx\"\n";
+        let cargo =
+            "[target.thumbv7em-none-eabihf]\nrunner = \"probe-rs run --chip STM32F411CEUx\"\n";
         assert_eq!(chip_from_text(cargo).as_deref(), Some("STM32F411CEUx"));
         let array = "runner = [\"probe-rs\", \"run\", \"--chip=nRF52840_xxAA\"]";
         assert_eq!(chip_from_text(array).as_deref(), Some("nRF52840_xxAA"));
         let embed = "[default.general]\n# chip = \"old\"\nchip = \"RP2040\"\n";
         assert_eq!(chip_from_text(embed).as_deref(), Some("RP2040"));
-        assert_eq!(chip_from_text("[env]\nPROBE_RS_CHIP = \"esp32c3\"").as_deref(), Some("esp32c3"));
+        assert_eq!(
+            chip_from_text("[env]\nPROBE_RS_CHIP = \"esp32c3\"").as_deref(),
+            Some("esp32c3")
+        );
         assert_eq!(chip_from_text("runner = \"probe-rs run\"\nchips = 3"), None);
         let pio = "; upload_command = probe-rs download --chip old\nupload_command = probe-rs download --chip STM32F103C8 $SOURCE\n";
         assert_eq!(chip_from_text(pio).as_deref(), Some("STM32F103C8"));
@@ -310,9 +317,13 @@ mod tests {
     #[test]
     fn reports_missing_chip_and_program() {
         let no_chip = json!({ "request": "launch", "program": "a.elf" });
-        assert!(normalize_config(no_chip, "/w", |_| None).unwrap_err().contains("chip"));
+        assert!(normalize_config(no_chip, "/w", |_| None)
+            .unwrap_err()
+            .contains("chip"));
         let no_program = json!({ "request": "launch", "chip": "RP2040" });
-        assert!(normalize_config(no_program, "/w", |_| None).unwrap_err().contains("program"));
+        assert!(normalize_config(no_program, "/w", |_| None)
+            .unwrap_err()
+            .contains("program"));
     }
 
     #[test]
@@ -337,7 +348,8 @@ mod tests {
         assert!(config.get("pioEnv").is_none());
 
         // An explicit program always wins over the PlatformIO default.
-        let raw = json!({ "request": "attach", "chip": "X", "program": "a.elf", "pioEnv": "debug" });
+        let raw =
+            json!({ "request": "attach", "chip": "X", "program": "a.elf", "pioEnv": "debug" });
         let config = normalize_config(raw, "/work", project).unwrap();
         assert_eq!(config["coreConfigs"][0]["programBinary"], "/work/a.elf");
     }

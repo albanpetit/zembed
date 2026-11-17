@@ -96,9 +96,15 @@ mod tests {
     #[test]
     fn reads_env_values() {
         let ini = "[env]\nboard = shared\nframework = arduino\n\n[env:xiao]\nboard = seeed_xiao_esp32s3 ; comment\n[env:other]\n";
-        assert_eq!(env_value(ini, "xiao", "board").as_deref(), Some("seeed_xiao_esp32s3"));
+        assert_eq!(
+            env_value(ini, "xiao", "board").as_deref(),
+            Some("seeed_xiao_esp32s3")
+        );
         assert_eq!(env_value(ini, "other", "board").as_deref(), Some("shared"));
-        assert_eq!(env_value(ini, "xiao", "framework").as_deref(), Some("arduino"));
+        assert_eq!(
+            env_value(ini, "xiao", "framework").as_deref(),
+            Some("arduino")
+        );
         assert_eq!(env_value(ini, "xiao", "platform"), None);
     }
 
